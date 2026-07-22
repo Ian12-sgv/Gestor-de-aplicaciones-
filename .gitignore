@@ -1,0 +1,33 @@
+.DS_Store
+Thumbs.db
+*.log
+
+back/node_modules/
+back/dist/
+back/.env
+
+front/.dart_tool/
+front/.flutter-plugins
+front/.flutter-plugins-dependencies
+front/.packages
+front/build/
+front/.idea/
+front/.metadata
+
+# Generated Android/Gradle files in auxiliary projects
+**/.gradle/
+**/build/
+**/local.properties
+
+docs/.cache/
+storage/
+
+# Local build/deployment artifacts (some exceed GitHub's 100 MB file limit)
+/artifacts/
+/apks/
+/back.rar
+/apk-kernel.bin
+/session-prefs.xml
+
+.vscode/
+.idea/

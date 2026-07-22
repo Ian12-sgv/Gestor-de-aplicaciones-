@@ -1,0 +1,17 @@
+# ⬇️ NUEVO BLOQUE SOLO PARA 5201 (no se tocó nada más)
+pdbstore.apipalacio.com {
+	encode zstd gzip
+	log {
+		output file C:/caddy/access-pdbstore.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format console
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+	reverse_proxy 127.0.0.1:5201
+}
