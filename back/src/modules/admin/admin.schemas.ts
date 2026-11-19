@@ -50,9 +50,24 @@ export const createAppSchema = z.object({
   status: z.enum(APP_STATUSES).optional(),
 });
 
+export const updateAppSchema = z
+  .object({
+    slug: z.string().trim().min(3).max(150).optional(),
+    displayName: z.string().trim().min(2).max(150).optional(),
+    shortDescription: z.string().trim().max(300).nullable().optional(),
+    description: z.string().trim().max(4000).nullable().optional(),
+    category: z.string().trim().max(100).nullable().optional(),
+    requiresExplicitAccess: z.preprocess(parseBoolean, z.boolean()).optional(),
+  })
+  .refine((input) => Object.keys(input).length > 0, "At least one field is required.");
+
+const emptyStringToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
+// versionName/versionCode are optional for uploads: they are read from the APK manifest.
 export const createAppVersionSchema = z.object({
-  versionName: z.string().trim().min(1).max(60),
-  versionCode: z.coerce.number().int().positive(),
+  versionName: z.preprocess(emptyStringToUndefined, z.string().trim().min(1).max(60).optional()),
+  versionCode: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
   changelog: z.string().trim().max(4000).optional(),
   sha256: z
     .string()
@@ -101,6 +116,7 @@ export const listInstallationLogsQuerySchema = z.object({
 
 export type CreateAppInput = z.infer<typeof createAppSchema>;
 export type CreateAppVersionInput = z.infer<typeof createAppVersionSchema>;
+export type UpdateAppInput = z.infer<typeof updateAppSchema>;
 export type UpdateAppStatusInput = z.infer<typeof updateAppStatusSchema>;
 export type UpdateVersionMandatoryInput = z.infer<typeof updateVersionMandatorySchema>;
 export type RevokeUserAccessInput = z.infer<typeof revokeUserAccessSchema>;

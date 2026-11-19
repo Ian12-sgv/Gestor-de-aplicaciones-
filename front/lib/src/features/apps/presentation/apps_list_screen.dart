@@ -2,106 +2,115 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../auth/presentation/auth_controller.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../auth/domain/app_user.dart';
 import '../../device/domain/device_profile.dart';
 import '../../device/presentation/device_controller.dart';
 import '../data/android_app_bridge.dart';
 import '../data/app_runtime_service.dart';
 import '../domain/corporate_app.dart';
 import 'apps_controller.dart';
-import 'widgets/app_status_chip.dart';
+import 'widgets/app_avatar_tile.dart';
 
 class AppsListScreen extends ConsumerWidget {
+  bool get _showLogoutControl => false;
   const AppsListScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authControllerProvider);
     final appsState = ref.watch(appsControllerProvider);
     final installEnvironmentAsync = ref.watch(installEnvironmentInfoProvider);
-    final user = authState.valueOrNull?.user;
-    final canRemoveFromDevice = user != null;
-    final canDeleteFromStore = user?.canDeleteAppsFromStore ?? false;
-    final currentUserLabel = user == null
-        ? 'Usuario no identificado'
-        : '${user.name} (${user.username})';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('pdb Store'),
+        toolbarHeight: 76,
+        titleSpacing: 20,
+        title: const _StoreTitle(),
         actions: [
           IconButton(
             tooltip: 'Refrescar',
             onPressed: () =>
                 ref.read(appsControllerProvider.notifier).refreshCatalog(),
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.sync_rounded),
           ),
-          IconButton(
-            tooltip: 'Cerrar sesion',
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: _CurrentUserBanner(userLabel: currentUserLabel),
-          ),
-          Expanded(
-            child: appsState.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stackTrace) => Center(
-                child: Text('No se pudo cargar el catalogo: $error'),
-              ),
-              data: (apps) {
-                final sortedApps = _sortApps(apps);
-                final mandatoryApps = sortedApps
-                    .where((app) => app.requiresImmediateUpdate)
-                    .toList(growable: false);
-
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  children: [
-                    installEnvironmentAsync.when(
-                      data: (installEnvironment) =>
-                          installEnvironment.canInstallUnknownApps
-                              ? const SizedBox.shrink()
-                              : Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: _InstallPermissionSetupCard(
-                                    installEnvironment: installEnvironment,
-                                  ),
-                                ),
-                      loading: () => const SizedBox.shrink(),
-                      error: (error, stackTrace) => const SizedBox.shrink(),
-                    ),
-                    if (mandatoryApps.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _MandatoryUpdatesSummaryCard(
-                          apps: mandatoryApps,
-                        ),
-                      ),
-                    ...sortedApps.map(
-                      (app) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _AppListCard(
-                          app: app,
-                          canRemoveFromDevice: canRemoveFromDevice,
-                          canDeleteFromStore: canDeleteFromStore,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+          if (_showLogoutControl)
+            IconButton(
+              tooltip: 'Cerrar sesión',
+              onPressed: null,
+              icon: const Icon(Icons.logout_rounded),
             ),
-          ),
+          const SizedBox(width: 8),
         ],
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(),
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: () =>
+            ref.read(appsControllerProvider.notifier).refreshCatalog(),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+          children: [
+            installEnvironmentAsync.when(
+              data: (installEnvironment) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _InstallPermissionCard(
+                  installEnvironment: installEnvironment,
+                ),
+              ),
+              loading: () => const SizedBox.shrink(),
+              error: (error, stackTrace) => const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 20),
+            ...appsState.when(
+              loading: () => const [
+                _CatalogHeader(appCount: null),
+                Padding(
+                  padding: EdgeInsets.only(top: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              ],
+              error: (error, stackTrace) => [
+                const _CatalogHeader(appCount: null),
+                const SizedBox(height: 16),
+                _CatalogMessage(
+                  icon: Icons.cloud_off_rounded,
+                  message: 'No se pudo cargar el catálogo: $error',
+                ),
+              ],
+              data: (apps) => _buildCatalog(apps),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  List<Widget> _buildCatalog(List<CorporateApp> apps) {
+    final sortedApps = _sortApps(apps);
+    final mandatoryApps = sortedApps
+        .where((app) => app.requiresImmediateUpdate)
+        .toList(growable: false);
+
+    return [
+      if (mandatoryApps.isNotEmpty) ...[
+        _MandatoryUpdatesSummaryCard(apps: mandatoryApps),
+        const SizedBox(height: 24),
+      ],
+      _CatalogHeader(appCount: sortedApps.length),
+      const SizedBox(height: 16),
+      if (sortedApps.isEmpty)
+        const _CatalogMessage(
+          icon: Icons.inventory_2_outlined,
+          message: 'Todavía no hay aplicaciones disponibles para ti.',
+        ),
+      for (final (index, app) in sortedApps.indexed)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _AppListCard(app: app, position: index + 1),
+        ),
+    ];
   }
 
   static List<CorporateApp> _sortApps(List<CorporateApp> apps) {
@@ -136,37 +145,112 @@ class AppsListScreen extends ConsumerWidget {
   }
 }
 
-class _CurrentUserBanner extends StatelessWidget {
-  const _CurrentUserBanner({
-    required this.userLabel,
-  });
-
-  final String userLabel;
+class _StoreTitle extends StatelessWidget {
+  const _StoreTitle();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Image.asset(
+          'assets/branding/pdbstore_logo.png',
+          width: 44,
+          height: 44,
+          semanticLabel: 'Logo de PDBStore',
+        ),
+        const SizedBox(width: 12),
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'pdb Store',
+              style: TextStyle(
+                color: AppPalette.ink,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Aplicaciones corporativas',
+              style: TextStyle(
+                color: AppPalette.muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class CurrentUserCard extends StatelessWidget {
+  const CurrentUserCard({super.key, required this.user});
+
+  final AppUser? user;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = user;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.18)),
+        color: AppPalette.mint,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppPalette.mintBorder),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(Icons.account_circle_outlined, color: colorScheme.primary),
-            const SizedBox(width: 10),
+            const _IconBubble(
+              icon: Icons.person_outline_rounded,
+              circular: true,
+            ),
+            const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                'Sesion: $userLabel',
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: colorScheme.onSurface,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _Eyebrow('Sesión activa', color: AppPalette.muted),
+                  const SizedBox(height: 4),
+                  Text.rich(
+                    currentUser == null
+                        ? const TextSpan(text: 'Usuario no identificado')
+                        : TextSpan(
+                            children: [
+                              TextSpan(
+                                text: currentUser.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              TextSpan(
+                                text: ' (${currentUser.username})',
+                                style: const TextStyle(
+                                  color: AppPalette.muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppPalette.ink,
+                      fontSize: 15,
                     ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: AppPalette.online,
+                shape: BoxShape.circle,
               ),
             ),
           ],
@@ -176,72 +260,101 @@ class _CurrentUserBanner extends StatelessWidget {
   }
 }
 
-class _InstallPermissionSetupCard extends ConsumerStatefulWidget {
-  const _InstallPermissionSetupCard({
+class _InstallPermissionCard extends ConsumerStatefulWidget {
+  const _InstallPermissionCard({
     required this.installEnvironment,
   });
 
   final InstallEnvironmentInfo installEnvironment;
 
   @override
-  ConsumerState<_InstallPermissionSetupCard> createState() =>
-      _InstallPermissionSetupCardState();
+  ConsumerState<_InstallPermissionCard> createState() =>
+      _InstallPermissionCardState();
 }
 
-class _InstallPermissionSetupCardState
-    extends ConsumerState<_InstallPermissionSetupCard> {
+class _InstallPermissionCardState
+    extends ConsumerState<_InstallPermissionCard> {
   bool _isOpeningSettings = false;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isReady = widget.installEnvironment.canInstallUnknownApps;
     final canOpenSettings = widget.installEnvironment.settingsAvailable;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.secondaryContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(20),
-        border:
-            Border.all(color: colorScheme.secondary.withValues(alpha: 0.22)),
+        color: AppPalette.sky,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppPalette.skyBorder),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.verified_user_outlined, color: colorScheme.primary),
-                const SizedBox(width: 10),
+                _IconBubble(
+                  icon: isReady
+                      ? Icons.check_rounded
+                      : Icons.verified_user_outlined,
+                ),
+                const SizedBox(width: 14),
                 Expanded(
-                  child: Text(
-                    'Prepara las instalaciones',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isReady
+                            ? 'Instalaciones preparadas'
+                            : 'Prepara las instalaciones',
+                        style: const TextStyle(
+                          color: AppPalette.ink,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        isReady
+                            ? 'El permiso está listo. Ya puedes instalar aplicaciones desde el catálogo.'
+                            : 'Activa una vez el permiso de la Store para instalar apps corporativas sin repetir este paso.',
+                        style: const TextStyle(
+                          color: AppPalette.muted,
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            const Text(
-              'Activa una vez el permiso de la Store para instalar apps corporativas. Asi evitaras este paso en cada descarga.',
-            ),
-            const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed:
-                  canOpenSettings && !_isOpeningSettings ? _openSettings : null,
-              icon: _isOpeningSettings
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.settings_outlined),
-              label: const Text('Preparar instalaciones'),
+          ),
+          if (!isReady) ...[
+            const Divider(color: AppPalette.skyBorder),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: FilledButton.icon(
+                onPressed: canOpenSettings && !_isOpeningSettings
+                    ? _openSettings
+                    : null,
+                icon: _isOpeningSettings
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.tune_rounded, size: 20),
+                label: const Text('Preparar instalaciones'),
+              ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -266,7 +379,7 @@ class _InstallPermissionSetupCardState
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se pudo abrir el permiso de instalacion.'),
+          content: Text('No se pudo abrir el permiso de instalación.'),
         ),
       );
     }
@@ -282,48 +395,65 @@ class _MandatoryUpdatesSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final firstApp = apps.first;
     final remainingApps = apps.length - 1;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.errorContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.error.withValues(alpha: 0.22)),
+        color: AppPalette.blush,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppPalette.blushBorder),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.warning_amber_rounded, color: colorScheme.error),
-                const SizedBox(width: 10),
+                const _IconBubble(
+                  icon: Icons.warning_amber_rounded,
+                  color: AppPalette.danger,
+                ),
+                const SizedBox(width: 14),
                 Expanded(
-                  child: Text(
-                    apps.length == 1
-                        ? 'Hay 1 app con actualizacion obligatoria'
-                        : 'Hay ${apps.length} apps con actualizacion obligatoria',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        apps.length == 1
+                            ? 'Hay 1 app con actualización obligatoria'
+                            : 'Hay ${apps.length} apps con actualización obligatoria',
+                        style: const TextStyle(
+                          color: AppPalette.ink,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
-                          color: colorScheme.onSurface,
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        remainingApps > 0
+                            ? 'Empieza por ${firstApp.name}. Después podrás revisar las otras $remainingApps pendientes.'
+                            : 'Empieza por ${firstApp.name}. Esta actualización es necesaria para seguir operando.',
+                        style: const TextStyle(
+                          color: AppPalette.muted,
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              remainingApps > 0
-                  ? 'Empieza por ${firstApp.name}. Despues podras revisar las otras $remainingApps pendientes.'
-                  : 'Empieza por ${firstApp.name}. Esta actualizacion es necesaria para seguir operando.',
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppPalette.danger,
+              ),
               onPressed: () => context.go('/apps/${firstApp.id}'),
-              icon: const Icon(Icons.system_update_alt_rounded),
+              icon: const Icon(Icons.system_update_alt_rounded, size: 20),
               label: const Text('Actualizar ahora'),
             ),
           ],
@@ -333,265 +463,299 @@ class _MandatoryUpdatesSummaryCard extends StatelessWidget {
   }
 }
 
-class _AppListCard extends StatelessWidget {
-  const _AppListCard({
-    required this.app,
-    required this.canRemoveFromDevice,
-    required this.canDeleteFromStore,
-  });
+class _CatalogHeader extends StatelessWidget {
+  const _CatalogHeader({required this.appCount});
 
-  final CorporateApp app;
-  final bool canRemoveFromDevice;
-  final bool canDeleteFromStore;
+  final int? appCount;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final highlightColor = app.requiresImmediateUpdate
-        ? colorScheme.error
-        : app.primaryAction == AppPrimaryAction.update
-            ? colorScheme.tertiary
-            : colorScheme.outlineVariant;
+    final count = appCount;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.go('/apps/${app.id}'),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(
-                color: highlightColor,
-                width: app.requiresImmediateUpdate ? 5 : 4,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Eyebrow('Catálogo', color: AppPalette.primary),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            const Flexible(
+              child: Text(
+                'Aplicaciones disponibles',
+                style: TextStyle(
+                  color: AppPalette.ink,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
               ),
             ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            app.name,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(app.description),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    AppStatusChip(app: app),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  app.installedVersion == null
-                      ? 'No instalada'
-                      : 'Instalada: ${app.installedVersion}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (app.latestVersion != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      'Disponible: ${app.latestVersion!.version}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                if (app.requiresImmediateUpdate)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      app.isBelowMinimumSupportedVersion
-                          ? 'Actualizacion obligatoria: la version instalada ya no cumple la version minima soportada.'
-                          : 'Actualizacion obligatoria: instala la nueva version cuanto antes.',
-                      style: TextStyle(
-                        color: colorScheme.error,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                if ((canRemoveFromDevice && app.isInstalled) ||
-                    canDeleteFromStore) ...[
-                  const SizedBox(height: 14),
-                  _AdminAppActions(
-                    app: app,
-                    canRemoveFromDevice: canRemoveFromDevice,
-                    canDeleteFromStore: canDeleteFromStore,
-                  ),
-                ],
-              ],
+            if (count != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                count == 1 ? '1 app' : '$count apps',
+                style: const TextStyle(color: AppPalette.muted, fontSize: 14),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CatalogMessage extends StatelessWidget {
+  const _CatalogMessage({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(icon, color: AppPalette.muted),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: AppPalette.muted),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _AdminAppActions extends ConsumerStatefulWidget {
-  const _AdminAppActions({
+class _AppListCard extends ConsumerStatefulWidget {
+  const _AppListCard({
     required this.app,
-    required this.canRemoveFromDevice,
-    required this.canDeleteFromStore,
+    required this.position,
   });
 
   final CorporateApp app;
-  final bool canRemoveFromDevice;
-  final bool canDeleteFromStore;
+  final int position;
 
   @override
-  ConsumerState<_AdminAppActions> createState() => _AdminAppActionsState();
+  ConsumerState<_AppListCard> createState() => _AppListCardState();
 }
 
-class _AdminAppActionsState extends ConsumerState<_AdminAppActions> {
-  bool _isDeleting = false;
-  bool _isDeletingFromStore = false;
+class _AppListCardState extends ConsumerState<_AppListCard> {
+  bool _isBusy = false;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (widget.canRemoveFromDevice && widget.app.isInstalled)
-          OutlinedButton.icon(
-            onPressed:
-                _isDeleting || _isDeletingFromStore ? null : _deleteFromDevice,
-            icon: _isDeleting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.phone_android),
-            label: const Text('Quitar de este dispositivo'),
-          ),
-        if (widget.canRemoveFromDevice &&
-            widget.app.isInstalled &&
-            widget.canDeleteFromStore)
-          const SizedBox(height: 8),
-        if (widget.canDeleteFromStore)
-          OutlinedButton.icon(
-            onPressed:
-                _isDeleting || _isDeletingFromStore ? null : _deleteFromStore,
-            icon: _isDeletingFromStore
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.storefront_outlined),
-            label: const Text('Retirar del catalogo'),
-          ),
-      ],
+    final activeDownloads =
+        ref.watch(appRuntimeServiceProvider).activeDownloads;
+
+    return ValueListenableBuilder<Map<String, double?>>(
+      valueListenable: activeDownloads,
+      builder: (context, downloads, _) => _buildCard(
+        context,
+        isDownloading: downloads.containsKey(widget.app.packageName),
+        downloadProgress: downloads[widget.app.packageName],
+      ),
     );
   }
 
-  Future<void> _deleteFromDevice() async {
+  Widget _buildCard(
+    BuildContext context, {
+    required bool isDownloading,
+    required double? downloadProgress,
+  }) {
+    final app = widget.app;
+    final latestVersion = app.latestVersion;
+    final showsInstalledVersion = app.isInstalled &&
+        app.installedVersion != null &&
+        app.installedVersion != latestVersion?.version;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: app.requiresImmediateUpdate
+              ? AppPalette.blushBorder
+              : AppPalette.border,
+        ),
+      ),
+      child: InkWell(
+        onTap: () => context.go('/apps/${app.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatarTile(
+                label: '${widget.position}',
+                colorSeed: app.id,
+                imageUrl: app.iconPath,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 4),
+                    Text(
+                      app.name,
+                      style: const TextStyle(
+                        color: AppPalette.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      app.packageName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppPalette.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    if (app.requiresImmediateUpdate) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Actualización obligatoria',
+                        style: TextStyle(
+                          color: AppPalette.danger,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    const Divider(),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _Eyebrow(
+                                'Versión disponible',
+                                color: AppPalette.muted,
+                                letterSpacing: 0.2,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                latestVersion?.version ?? '—',
+                                style: const TextStyle(
+                                  color: AppPalette.ink,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (showsInstalledVersion)
+                                Text(
+                                  'Instalada: ${app.installedVersion}',
+                                  style: const TextStyle(
+                                    color: AppPalette.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (app.primaryAction != AppPrimaryAction.none)
+                          _CompactActionButton(
+                            label: _actionLabel(app),
+                            isBusy: _isBusy || isDownloading,
+                            isUrgent: app.requiresImmediateUpdate,
+                            onPressed: _runPrimaryAction,
+                          ),
+                      ],
+                    ),
+                    if (isDownloading) ...[
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(value: downloadProgress),
+                      const SizedBox(height: 6),
+                      Text(
+                        downloadProgress == null
+                            ? 'Descargando...'
+                            : 'Descargando ${(downloadProgress * 100).round()}%',
+                        style: const TextStyle(
+                          color: AppPalette.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _actionLabel(CorporateApp app) {
+    return switch (app.primaryAction) {
+      AppPrimaryAction.install => 'Instalar',
+      AppPrimaryAction.update => 'Actualizar',
+      AppPrimaryAction.open => 'Abrir',
+      AppPrimaryAction.none => '',
+    };
+  }
+
+  Future<void> _runPrimaryAction() async {
+    final app = widget.app;
     setState(() {
-      _isDeleting = true;
+      _isBusy = true;
     });
 
     try {
+      final runtimeService = ref.read(appRuntimeServiceProvider);
       final deviceProfile = await _resolveRegisteredDeviceProfile();
-      final result = await ref.read(appRuntimeServiceProvider).uninstallApp(
-            widget.app,
+      final result = switch (app.primaryAction) {
+        AppPrimaryAction.install ||
+        AppPrimaryAction.update =>
+          await runtimeService.downloadAndInstall(
+            app,
             deviceProfile: deviceProfile,
-          );
+            onDownloadProgress: (_) {},
+          ),
+        AppPrimaryAction.open => await runtimeService.openInstalledApp(
+            app,
+            deviceProfile: deviceProfile,
+          ),
+        AppPrimaryAction.none => const AppActionResult(
+            success: false,
+            message: 'No hay acciones disponibles para esta app.',
+          ),
+      };
 
-      if (!mounted) {
-        return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message)),
+        );
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo eliminar la app: $error')),
+          SnackBar(content: Text('No se pudo completar la acción: $error')),
         );
       }
     } finally {
       try {
         await ref.read(appsControllerProvider.notifier).refreshCatalog();
       } catch (_) {
-        // The uninstall confirmation may still be open; refresh again on app resume.
+        // The system installer may still be open; the catalog refreshes on resume.
       }
 
       if (mounted) {
         setState(() {
-          _isDeleting = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _deleteFromStore() async {
-    final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Eliminar de tienda'),
-            content: Text(
-              'La app ${widget.app.name} dejara de estar disponible para todos los usuarios. Esta accion tambien elimina sus archivos publicados.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Eliminar'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    if (!confirmed) {
-      return;
-    }
-
-    setState(() {
-      _isDeletingFromStore = true;
-    });
-
-    try {
-      await ref
-          .read(appsControllerProvider.notifier)
-          .deleteAppFromStore(widget.app.id);
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('App eliminada de la tienda.')),
-      );
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo eliminar de la tienda: $error')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isDeletingFromStore = false;
+          _isBusy = false;
         });
       }
     }
@@ -603,5 +767,100 @@ class _AdminAppActionsState extends ConsumerState<_AdminAppActions> {
     } catch (_) {
       return null;
     }
+  }
+}
+
+class _CompactActionButton extends StatelessWidget {
+  const _CompactActionButton({
+    required this.label,
+    required this.isBusy,
+    required this.isUrgent,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool isBusy;
+  final bool isUrgent;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: isBusy ? null : onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: isUrgent ? AppPalette.danger : AppPalette.primary,
+        minimumSize: const Size(0, 42),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+      child: isBusy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right_rounded, size: 20),
+              ],
+            ),
+    );
+  }
+}
+
+class _IconBubble extends StatelessWidget {
+  const _IconBubble({
+    required this.icon,
+    this.circular = false,
+    this.color = AppPalette.primary,
+  });
+
+  final IconData icon;
+  final bool circular;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: circular ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: circular ? null : BorderRadius.circular(12),
+      ),
+      child: Icon(icon, color: color, size: 22),
+    );
+  }
+}
+
+class _Eyebrow extends StatelessWidget {
+  const _Eyebrow(
+    this.text, {
+    required this.color,
+    this.letterSpacing = 0.6,
+  });
+
+  final String text;
+  final Color color;
+  final double letterSpacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        color: color,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: letterSpacing,
+      ),
+    );
   }
 }

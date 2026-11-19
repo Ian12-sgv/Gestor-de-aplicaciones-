@@ -30,6 +30,32 @@ export const createAppVersionController = asyncHandler(async (req: Request, res:
   });
 });
 
+export const listAdminAppsController = asyncHandler(async (_req: Request, res: Response) => {
+  const items = await adminService.listAdminApps();
+  res.status(200).json({ items });
+});
+
+export const updateAppController = asyncHandler(async (req: Request, res: Response) => {
+  const app = await adminService.updateApp(req.params.id, req.body);
+  res.status(200).json({ app });
+});
+
+export const getAdminAppIconController = asyncHandler(async (req: Request, res: Response) => {
+  const icon = await adminService.getAdminAppIcon(req.params.id);
+  res.set("Cache-Control", "private, max-age=86400");
+  res.type(icon.contentType).sendFile(icon.filePath);
+});
+
+export const uploadAppIconController = asyncHandler(async (req: Request, res: Response) => {
+  const app = await adminService.uploadAppIcon(req.params.id, req.file);
+  res.status(200).json({ app });
+});
+
+export const deleteAppIconController = asyncHandler(async (req: Request, res: Response) => {
+  const app = await adminService.deleteAppIcon(req.params.id);
+  res.status(200).json({ app });
+});
+
 export const updateAppStatusController = asyncHandler(async (req: Request, res: Response) => {
   const app = await adminService.updateAppStatus(req.params.id, req.body);
   res.status(200).json({ app });

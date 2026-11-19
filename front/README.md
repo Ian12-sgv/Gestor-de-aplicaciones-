@@ -25,5 +25,5 @@ Usa `--dart-define`:
 Ejemplo:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000 --dart-define=USE_DEMO_DATA=false
+flutter run --dart-define=API_BASE_URL=https://pdbstore.apipalacio.com --dart-define=USE_DEMO_DATA=false
 ```

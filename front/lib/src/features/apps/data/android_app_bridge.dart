@@ -53,6 +53,7 @@ class InstallEnvironmentInfo {
 enum InstallLaunchStatus {
   launchedInstaller,
   needsPermission,
+  signatureConflict,
   unavailable,
 }
 
@@ -79,6 +80,38 @@ class UninstallLaunchResult {
 
   final UninstallLaunchStatus status;
   final String message;
+}
+
+class BackgroundDownloadResult {
+  const BackgroundDownloadResult({
+    required this.queued,
+    required this.message,
+    this.downloadId,
+    this.filePath,
+  });
+
+  final bool queued;
+  final String message;
+  final int? downloadId;
+  final String? filePath;
+}
+
+class BackgroundDownloadProgress {
+  const BackgroundDownloadProgress({
+    required this.status,
+    required this.receivedBytes,
+    required this.totalBytes,
+  });
+
+  final int status;
+  final int receivedBytes;
+  final int totalBytes;
+
+  bool get isSuccessful => status == 8;
+  bool get isFinished => status == 8 || status == 16;
+  double? get fraction => totalBytes > 0
+      ? (receivedBytes / totalBytes).clamp(0, 1).toDouble()
+      : null;
 }
 
 class AndroidAppBridge {
@@ -160,6 +193,73 @@ class AndroidAppBridge {
     }
   }
 
+  Future<bool> ensureNotificationPermission() async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'ensureNotificationPermission',
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<BackgroundDownloadResult> enqueueApkDownload({
+    required Uri downloadUri,
+    String? accessToken,
+    required String fileName,
+    required String appName,
+    required String packageName,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'enqueueApkDownload',
+        <String, Object?>{
+          'downloadUrl': downloadUri.toString(),
+          'accessToken': accessToken,
+          'fileName': fileName,
+          'appName': appName,
+          'packageName': packageName,
+        },
+      );
+      final status = result?['status'] as String? ?? 'unavailable';
+      return BackgroundDownloadResult(
+        queued: status == 'queued',
+        message: result?['message'] as String? ??
+            'No se pudo iniciar la descarga en segundo plano.',
+        downloadId: _parseInt(result?['downloadId']),
+        filePath: result?['filePath'] as String?,
+      );
+    } on PlatformException catch (error) {
+      return BackgroundDownloadResult(
+        queued: false,
+        message:
+            error.message ?? 'No se pudo iniciar la descarga en segundo plano.',
+      );
+    }
+  }
+
+  Future<BackgroundDownloadProgress?> getApkDownloadProgress(
+    int downloadId,
+  ) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getApkDownloadProgress',
+        <String, Object?>{'downloadId': downloadId},
+      );
+      if (result == null) {
+        return null;
+      }
+      return BackgroundDownloadProgress(
+        status: _parseInt(result['status']) ?? 16,
+        receivedBytes: _parseInt(result['receivedBytes']) ?? 0,
+        totalBytes: _parseInt(result['totalBytes']) ?? -1,
+      );
+    } on PlatformException {
+      return null;
+    }
+  }
+
   Future<InstallLaunchResult> installApk(String apkPath) async {
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
@@ -174,11 +274,7 @@ class AndroidAppBridge {
           'No fue posible iniciar la instalacion.';
 
       return InstallLaunchResult(
-        status: switch (statusValue) {
-          'launchedInstaller' => InstallLaunchStatus.launchedInstaller,
-          'needsPermission' => InstallLaunchStatus.needsPermission,
-          _ => InstallLaunchStatus.unavailable,
-        },
+        status: _parseInstallStatus(statusValue),
         message: message,
       );
     } on PlatformException catch (error) {
@@ -187,6 +283,43 @@ class AndroidAppBridge {
         message: error.message ?? 'No fue posible iniciar la instalacion.',
       );
     }
+  }
+
+  /// Opens the system installer for a finished background download. Returns
+  /// `deferred` when the store is not on screen; the notification handles it then.
+  Future<InstallLaunchResult?> installDownloadedApk({
+    required int downloadId,
+    required String apkPath,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'installDownloadedApk',
+        <String, Object?>{'downloadId': downloadId, 'apkPath': apkPath},
+      );
+      final statusValue = result?['status'] as String? ?? 'unavailable';
+      if (statusValue == 'deferred') {
+        return null;
+      }
+      return InstallLaunchResult(
+        status: _parseInstallStatus(statusValue),
+        message: result?['message'] as String? ??
+            'No fue posible iniciar la instalacion.',
+      );
+    } on PlatformException catch (error) {
+      return InstallLaunchResult(
+        status: InstallLaunchStatus.unavailable,
+        message: error.message ?? 'No fue posible iniciar la instalacion.',
+      );
+    }
+  }
+
+  static InstallLaunchStatus _parseInstallStatus(String value) {
+    return switch (value) {
+      'launchedInstaller' => InstallLaunchStatus.launchedInstaller,
+      'needsPermission' => InstallLaunchStatus.needsPermission,
+      'signatureConflict' => InstallLaunchStatus.signatureConflict,
+      _ => InstallLaunchStatus.unavailable,
+    };
   }
 
   Future<String?> getApkCacheDirectory() async {

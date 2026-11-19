@@ -10,12 +10,17 @@ class RemoteAppsRepository implements AppsRepository {
 
   final Dio _client;
 
+  static final _publicOptions = Options(
+    extra: <String, Object>{'skipAuth': true, 'skipRefresh': true},
+  );
+
   @override
   Future<List<CorporateApp>> fetchApps({String? deviceId}) async {
     try {
       final response = await _client.get<Map<String, dynamic>>(
         '/api/apps',
         queryParameters: _deviceQuery(deviceId),
+        options: _publicOptions,
       );
       final payload = response.data?['items'] as List<dynamic>? ?? <dynamic>[];
       return payload
@@ -36,6 +41,7 @@ class RemoteAppsRepository implements AppsRepository {
       final response = await _client.get<Map<String, dynamic>>(
         '/api/apps/$id',
         queryParameters: _deviceQuery(deviceId),
+        options: _publicOptions,
       );
       var app = CorporateApp.fromJson(response.data ?? <String, dynamic>{});
 
@@ -67,6 +73,7 @@ class RemoteAppsRepository implements AppsRepository {
       final response = await _client.get<Map<String, dynamic>>(
         '/api/apps/$appId/latest-version',
         queryParameters: _deviceQuery(deviceId),
+        options: _publicOptions,
       );
       final data = response.data ?? <String, dynamic>{};
       final latestVersion =

@@ -1,19 +1,24 @@
 import { Router } from "express";
 import { PERMISSIONS } from "../../config/domain";
 import { authorizePermissions } from "../../middlewares/authorize";
-import { apkUpload } from "../../middlewares/upload";
+import { apkUpload, appIconUpload } from "../../middlewares/upload";
 import { validate } from "../../middlewares/validate";
 import {
   createAppController,
   createAppVersionController,
   createUserController,
   deleteAppFromStoreController,
+  deleteAppIconController,
+  getAdminAppIconController,
+  listAdminAppsController,
   listInstallationLogsController,
   revokeUserAccessController,
   upsertAppRoleAccessController,
   upsertAppUserAccessController,
+  updateAppController,
   updateAppStatusController,
   updateVersionMandatoryController,
+  uploadAppIconController,
 } from "./admin.controller";
 import {
   appRoleParamsSchema,
@@ -24,6 +29,7 @@ import {
   createAppVersionSchema,
   listInstallationLogsQuerySchema,
   revokeUserAccessSchema,
+  updateAppSchema,
   updateAppStatusSchema,
   updateVersionMandatorySchema,
   upsertAppUserAccessSchema,
@@ -45,6 +51,24 @@ router.post(
   validate(createAppSchema),
   createAppController,
 );
+router.get(
+  "/apps",
+  authorizePermissions([PERMISSIONS.APP_CATALOG_BYPASS]),
+  listAdminAppsController,
+);
+router.patch(
+  "/apps/:id",
+  authorizePermissions([PERMISSIONS.APP_UPDATE]),
+  validate(appParamsSchema, "params"),
+  validate(updateAppSchema),
+  updateAppController,
+);
+router.get(
+  "/apps/:id/icon",
+  authorizePermissions([PERMISSIONS.APP_CATALOG_BYPASS]),
+  validate(appParamsSchema, "params"),
+  getAdminAppIconController,
+);
 router.post(
   "/apps/:id/versions",
   authorizePermissions([PERMISSIONS.APP_VERSION_CREATE]),
@@ -53,6 +77,20 @@ router.post(
   validate(createAppVersionSchema),
   createAppVersionController,
 );
+router.post(
+  "/apps/:id/icon",
+  authorizePermissions([PERMISSIONS.APP_MEDIA_MANAGE]),
+  appIconUpload.single("icon"),
+  validate(appParamsSchema, "params"),
+  uploadAppIconController,
+);
+router.delete(
+  "/apps/:id/icon",
+  authorizePermissions([PERMISSIONS.APP_MEDIA_MANAGE]),
+  validate(appParamsSchema, "params"),
+  deleteAppIconController,
+);
+
 router.patch(
   "/apps/:id/status",
   authorizePermissions([PERMISSIONS.APP_STATUS_UPDATE]),

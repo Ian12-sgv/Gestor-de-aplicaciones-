@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../auth/presentation/auth_controller.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../device/domain/device_profile.dart';
 import '../../device/presentation/device_controller.dart';
 import '../data/app_runtime_service.dart';
 import '../data/android_app_bridge.dart';
 import '../domain/corporate_app.dart';
 import 'apps_controller.dart';
+import 'widgets/app_avatar_tile.dart';
 
 class AppDetailScreen extends ConsumerStatefulWidget {
   const AppDetailScreen({
@@ -22,10 +23,9 @@ class AppDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
+  bool get _catalogRemovalEnabled => false;
   late final AppLifecycleListener _lifecycleListener;
   bool _isSubmitting = false;
-  bool _showDownloadProgress = false;
-  double? _downloadProgress;
 
   @override
   void initState() {
@@ -45,17 +45,29 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
   Widget build(BuildContext context) {
     final appAsync = ref.watch(appDetailProvider(widget.appId));
     final installEnvironmentAsync = ref.watch(installEnvironmentInfoProvider);
-    final authState = ref.watch(authControllerProvider);
-    final user = authState.valueOrNull?.user;
-    final canRemoveFromDevice = user != null;
-    final canDeleteFromStore = user?.canDeleteAppsFromStore ?? false;
+    const canRemoveFromDevice = true;
+    final activeDownloads =
+        ref.watch(appRuntimeServiceProvider).activeDownloads;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Aplicacion')),
+      appBar: AppBar(
+        title: const Text('Detalles de la aplicación'),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(),
+        ),
+      ),
       body: appAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
-          child: Text('No se pudo cargar la app: $error'),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'No se pudo cargar la app: $error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppPalette.muted),
+            ),
+          ),
         ),
         data: (app) {
           final action = app.primaryAction;
@@ -63,35 +75,15 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
           final actionLabel = _resolvePrimaryActionLabel(app);
 
           return ListView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
             children: [
-              Text(app.name, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 8),
-              Text(app.description),
+              _AppHeader(app: app),
+              const SizedBox(height: 24),
+              _AppStatsCard(app: app),
               if (app.requiresImmediateUpdate) ...[
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 _MandatoryUpdateBanner(app: app),
               ],
-              const SizedBox(height: 24),
-              _InfoRow(
-                label: 'Estado',
-                value: app.isInstalled ? 'Instalada' : 'No instalada',
-              ),
-              if (app.installedVersion != null)
-                _InfoRow(
-                  label: 'En uso',
-                  value: app.installedVersion!,
-                ),
-              _InfoRow(
-                label: 'Disponible',
-                value: latestVersion?.version ?? 'Sin version disponible',
-              ),
-              _InfoRow(
-                label: 'Prioridad',
-                value: app.requiresImmediateUpdate
-                    ? 'Requiere actualizacion'
-                    : 'Normal',
-              ),
               if (action == AppPrimaryAction.install ||
                   action == AppPrimaryAction.update) ...[
                 const SizedBox(height: 16),
@@ -103,54 +95,92 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
                   error: (error, stackTrace) => const SizedBox.shrink(),
                 ),
               ],
-              const SizedBox(height: 24),
-              Text('Novedades', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
+              const SizedBox(height: 28),
+              const Text(
+                'Novedades',
+                style: TextStyle(
+                  color: AppPalette.ink,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
               Text(
                 latestVersion == null || latestVersion.changelog.trim().isEmpty
                     ? 'Sin novedades disponibles.'
                     : latestVersion.changelog,
+                style: const TextStyle(
+                  color: AppPalette.muted,
+                  fontSize: 15,
+                  height: 1.6,
+                ),
               ),
-              const SizedBox(height: 24),
-              FilledButton(
+              const SizedBox(height: 28),
+              FilledButton.icon(
+                style: app.requiresImmediateUpdate
+                    ? FilledButton.styleFrom(
+                        backgroundColor: AppPalette.danger,
+                      )
+                    : null,
                 onPressed: _isSubmitting || action == AppPrimaryAction.none
                     ? null
                     : () => _handlePrimaryAction(app),
-                child: _ActionLabel(
-                  isBusy: _isSubmitting,
-                  label: actionLabel,
-                ),
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(_primaryActionIcon(action), size: 20),
+                label: Text(actionLabel),
               ),
-              if (_showDownloadProgress) ...[
+              ValueListenableBuilder<Map<String, double?>>(
+                valueListenable: activeDownloads,
+                builder: (context, downloads, _) {
+                  if (!downloads.containsKey(app.packageName)) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: _DownloadProgress(
+                      progress: downloads[app.packageName],
+                    ),
+                  );
+                },
+              ),
+              if (canRemoveFromDevice && app.isInstalled) ...[
                 const SizedBox(height: 12),
-                _DownloadProgress(progress: _downloadProgress),
+                OutlinedButton.icon(
+                  onPressed: _isSubmitting ? null : () => _uninstallApp(app),
+                  icon: const Icon(Icons.phone_android_rounded, size: 20),
+                  label: const Text('Quitar de este dispositivo'),
+                ),
               ],
-              if ((canRemoveFromDevice && app.isInstalled) ||
-                  canDeleteFromStore) ...[
+              if (_catalogRemovalEnabled) ...[
                 const SizedBox(height: 12),
-                if (canRemoveFromDevice && app.isInstalled)
-                  OutlinedButton.icon(
-                    onPressed: _isSubmitting ? null : () => _uninstallApp(app),
-                    icon: const Icon(Icons.phone_android),
-                    label: const Text('Quitar de este dispositivo'),
-                  ),
-                if (canRemoveFromDevice &&
-                    app.isInstalled &&
-                    canDeleteFromStore)
-                  const SizedBox(height: 12),
-                if (canDeleteFromStore)
-                  OutlinedButton.icon(
-                    onPressed:
-                        _isSubmitting ? null : () => _deleteFromStore(app),
-                    icon: const Icon(Icons.storefront_outlined),
-                    label: const Text('Retirar del catalogo'),
-                  ),
+                OutlinedButton.icon(
+                  onPressed: _isSubmitting ? null : () => _deleteFromStore(app),
+                  icon: const Icon(Icons.storefront_outlined, size: 20),
+                  label: const Text('Retirar del catálogo'),
+                ),
               ],
             ],
           );
         },
       ),
     );
+  }
+
+  static IconData _primaryActionIcon(AppPrimaryAction action) {
+    return switch (action) {
+      AppPrimaryAction.install => Icons.download_rounded,
+      AppPrimaryAction.update => Icons.system_update_alt_rounded,
+      AppPrimaryAction.open => Icons.open_in_new_rounded,
+      AppPrimaryAction.none => Icons.check_circle_outline_rounded,
+    };
   }
 
   Future<void> _handlePrimaryAction(CorporateApp app) async {
@@ -164,7 +194,6 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
           runtimeService.downloadAndInstall(
             app,
             deviceProfile: deviceProfile,
-            onDownloadProgress: _updateDownloadProgress,
           ),
         AppPrimaryAction.open => runtimeService.openInstalledApp(
             app,
@@ -241,29 +270,14 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
       if (mounted) {
         setState(() {
           _isSubmitting = false;
-          _showDownloadProgress = false;
-          _downloadProgress = null;
         });
       }
     }
   }
 
-  void _updateDownloadProgress(double? progress) {
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _showDownloadProgress = true;
-      _downloadProgress = progress;
-    });
-  }
-
   Future<void> _runAction(Future<AppActionResult> Function() action) async {
     setState(() {
       _isSubmitting = true;
-      _showDownloadProgress = false;
-      _downloadProgress = null;
     });
 
     try {
@@ -292,8 +306,6 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> {
       if (mounted) {
         setState(() {
           _isSubmitting = false;
-          _showDownloadProgress = false;
-          _downloadProgress = null;
         });
       }
     }
@@ -360,6 +372,225 @@ class _DownloadProgress extends StatelessWidget {
   }
 }
 
+class _AppHeader extends StatelessWidget {
+  const _AppHeader({required this.app});
+
+  final CorporateApp app;
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmedName = app.name.trim();
+    final initial =
+        trimmedName.isEmpty ? '?' : trimmedName.characters.first.toUpperCase();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AppAvatarTile(
+          label: initial,
+          colorSeed: app.id,
+          imageUrl: app.iconPath,
+          size: 88,
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                app.name,
+                style: const TextStyle(
+                  color: AppPalette.ink,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  height: 1.15,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'pdb Corporativo',
+                style: TextStyle(
+                  color: AppPalette.primary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                app.packageName,
+                style: const TextStyle(
+                  color: AppPalette.muted,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AppStatsCard extends StatelessWidget {
+  const _AppStatsCard({required this.app});
+
+  final CorporateApp app;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = !app.isInstalled
+        ? 'Disponible'
+        : app.hasUpdateAvailable
+            ? 'Desactualizada'
+            : 'Instalada';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          children: [
+            IntrinsicHeight(
+              child: Row(
+                children: [
+                  _StatCell(label: 'Estado', value: status),
+                  const VerticalDivider(width: 1),
+                  _StatCell(
+                    label: 'Versión',
+                    value: app.latestVersion?.version ?? '—',
+                  ),
+                  const VerticalDivider(width: 1),
+                  _StatCell(
+                    label: 'Prioridad',
+                    value: app.requiresImmediateUpdate ? 'Alta' : 'Normal',
+                    valueColor: app.requiresImmediateUpdate
+                        ? AppPalette.danger
+                        : AppPalette.ink,
+                  ),
+                ],
+              ),
+            ),
+            if (app.isInstalled &&
+                app.installedVersion != null &&
+                app.hasUpdateAvailable) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Versión en uso: ${app.installedVersion}',
+                style: const TextStyle(color: AppPalette.muted, fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCell extends StatelessWidget {
+  const _StatCell({
+    required this.label,
+    required this.value,
+    this.valueColor = AppPalette.ink,
+  });
+
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: AppPalette.muted, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: valueColor,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoticeCard extends StatelessWidget {
+  const _NoticeCard({
+    required this.icon,
+    required this.iconColor,
+    required this.background,
+    required this.border,
+    required this.title,
+    required this.children,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color background;
+  final Color border;
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppPalette.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  DefaultTextStyle.merge(
+                    style: const TextStyle(
+                      color: AppPalette.muted,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: children,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InstallRequirementsCard extends StatelessWidget {
   const _InstallRequirementsCard({
     required this.installEnvironment,
@@ -369,71 +600,26 @@ class _InstallRequirementsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final hasUnknownSourcesPermission =
         installEnvironment.canInstallUnknownApps;
     final hasInstaller = installEnvironment.installerAvailable;
-    final severityColor = hasUnknownSourcesPermission && hasInstaller
-        ? colorScheme.secondary
-        : colorScheme.error;
+    final isReady = hasUnknownSourcesPermission && hasInstaller;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: severityColor.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: severityColor.withValues(alpha: 0.24)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              hasUnknownSourcesPermission && hasInstaller
-                  ? 'Listo para instalar'
-                  : 'Permiso necesario',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              hasUnknownSourcesPermission
-                  ? 'Este dispositivo permite instalar apps corporativas.'
-                  : 'Activa el permiso de instalacion cuando Android lo solicite.',
-            ),
-            const SizedBox(height: 4),
-            Text(
-              hasInstaller
-                  ? 'Al continuar se abrira el instalador del sistema.'
-                  : 'No se encontro una app del sistema para completar la instalacion.',
-            ),
-          ],
+    return _NoticeCard(
+      icon: isReady ? Icons.verified_outlined : Icons.shield_outlined,
+      iconColor: isReady ? AppPalette.primary : AppPalette.danger,
+      background: isReady ? AppPalette.mint : AppPalette.blush,
+      border: isReady ? AppPalette.mintBorder : AppPalette.blushBorder,
+      title: isReady ? 'Listo para instalar' : 'Permiso necesario',
+      children: [
+        Text(
+          !hasInstaller
+              ? 'No se encontró una app del sistema para completar la instalación.'
+              : hasUnknownSourcesPermission
+                  ? 'Este dispositivo permite instalar apps corporativas. Al continuar se abrirá el instalador del sistema.'
+                  : 'Android solicitará permiso para instalar esta aplicación. Al continuar se abrirá el instalador del sistema.',
         ),
-      ),
-    );
-  }
-}
-
-class _ActionLabel extends StatelessWidget {
-  const _ActionLabel({
-    required this.isBusy,
-    required this.label,
-  });
-
-  final bool isBusy;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!isBusy) {
-      return Text(label);
-    }
-
-    return const SizedBox(
-      width: 18,
-      height: 18,
-      child: CircularProgressIndicator(strokeWidth: 2),
+      ],
     );
   }
 }
@@ -447,82 +633,31 @@ class _MandatoryUpdateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final latestVersion = app.latestVersion;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.errorContainer.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.error.withValues(alpha: 0.24)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.warning_amber_rounded, color: colorScheme.error),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Actualizacion obligatoria',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              app.isBelowMinimumSupportedVersion
-                  ? 'La version instalada ya no cumple con la version minima soportada. Debes actualizar antes de seguir usando esta app.'
-                  : 'Hay una actualizacion importante. Instalala para mantener la app al dia.',
-            ),
-            if (latestVersion != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                'Version requerida: ${latestVersion.version}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
-          ],
+    return _NoticeCard(
+      icon: Icons.warning_amber_rounded,
+      iconColor: AppPalette.danger,
+      background: AppPalette.blush,
+      border: AppPalette.blushBorder,
+      title: 'Actualización obligatoria',
+      children: [
+        Text(
+          app.isBelowMinimumSupportedVersion
+              ? 'La versión instalada ya no cumple con la versión mínima soportada. Debes actualizar antes de seguir usando esta app.'
+              : 'Hay una actualización importante. Instálala para mantener la app al día.',
         ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.labelLarge,
+        if (latestVersion != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Versión requerida: ${latestVersion.version}',
+            style: const TextStyle(
+              color: AppPalette.ink,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          Expanded(child: Text(value)),
         ],
-      ),
+      ],
     );
   }
 }

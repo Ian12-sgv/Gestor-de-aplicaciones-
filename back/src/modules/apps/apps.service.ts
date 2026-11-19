@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import fs from "node:fs";
 import path from "node:path";
 import { hasPermission, PERMISSIONS } from "../../config/domain";
 import { env } from "../../config/env";
@@ -6,12 +7,24 @@ import { prisma } from "../../config/prisma";
 import { resolveStoredApkPath, storedApkExists } from "../../utils/apk";
 import { ApiError } from "../../utils/api-error";
 import type { AuthenticatedRequestUser } from "../auth/auth.types";
+import {
+  imageContentTypeForPath,
+  isManagedIconPath,
+  resolveStoredMediaPath,
+} from "../../utils/media";
 
-function isAdmin(user: AuthenticatedRequestUser): boolean {
-  return hasPermission(user.roles, PERMISSIONS.APP_CATALOG_BYPASS);
+function isAdmin(user?: AuthenticatedRequestUser): boolean {
+  return user !== undefined && hasPermission(user.roles, PERMISSIONS.APP_CATALOG_BYPASS);
 }
 
-function accessibleAppsWhere(user: AuthenticatedRequestUser): Prisma.AppWhereInput {
+function accessibleAppsWhere(user?: AuthenticatedRequestUser): Prisma.AppWhereInput {
+  if (!user) {
+    return {
+      status: "ACTIVE",
+      requiresExplicitAccess: false,
+    };
+  }
+
   if (isAdmin(user)) {
     return {
       status: "ACTIVE",
@@ -46,7 +59,14 @@ function accessibleAppsWhere(user: AuthenticatedRequestUser): Prisma.AppWhereInp
   };
 }
 
-function installableAppsWhere(user: AuthenticatedRequestUser): Prisma.AppWhereInput {
+function installableAppsWhere(user?: AuthenticatedRequestUser): Prisma.AppWhereInput {
+  if (!user) {
+    return {
+      status: "ACTIVE",
+      requiresExplicitAccess: false,
+    };
+  }
+
   if (isAdmin(user)) {
     return {
       status: "ACTIVE",
@@ -129,7 +149,7 @@ function mapVersionSummary(version: AppVersionRecord) {
 
 async function findAccessibleAppOrThrow(
   appId: string,
-  user: AuthenticatedRequestUser,
+  user?: AuthenticatedRequestUser,
   deviceId?: string,
 ): Promise<AppRecord> {
   const include = deviceId
@@ -217,6 +237,9 @@ async function mapAppSummary(
     shortDescription: app.shortDescription,
     description: app.description,
     iconPath: app.iconPath,
+    iconUrl: isManagedIconPath(app.iconPath)
+      ? `${env.API_PREFIX}/apps/${app.id}/icon`
+      : null,
     bannerPath: app.bannerPath,
     category: app.category,
     status: app.status,
@@ -237,7 +260,7 @@ async function mapAppSummary(
   };
 }
 
-export async function listApps(user: AuthenticatedRequestUser, deviceId?: string) {
+export async function listApps(user?: AuthenticatedRequestUser, deviceId?: string) {
   const include = deviceId
     ? {
         versions: versionsInclude,
@@ -267,7 +290,7 @@ export async function listApps(user: AuthenticatedRequestUser, deviceId?: string
   return summaries.filter((summary): summary is Record<string, unknown> => summary !== null);
 }
 
-export async function getAppById(appId: string, user: AuthenticatedRequestUser, deviceId?: string) {
+export async function getAppById(appId: string, user?: AuthenticatedRequestUser, deviceId?: string) {
   const app = await findAccessibleAppOrThrow(appId, user, deviceId);
   const summary = await mapAppSummary(app, new Map<string, boolean>());
 
@@ -280,7 +303,7 @@ export async function getAppById(appId: string, user: AuthenticatedRequestUser, 
 
 export async function getLatestVersion(
   appId: string,
-  user: AuthenticatedRequestUser,
+  user?: AuthenticatedRequestUser,
   deviceId?: string,
 ) {
   const app = await findAccessibleAppOrThrow(appId, user, deviceId);
@@ -296,7 +319,7 @@ export async function getLatestVersion(
   };
 }
 
-export async function getChangelog(appId: string, user: AuthenticatedRequestUser) {
+export async function getChangelog(appId: string, user?: AuthenticatedRequestUser) {
   const app = await prisma.app.findFirst({
     where: {
       id: appId,
@@ -359,9 +382,37 @@ export async function getChangelog(appId: string, user: AuthenticatedRequestUser
   };
 }
 
+export async function getAppIcon(appId: string, user?: AuthenticatedRequestUser) {
+  const app = await prisma.app.findFirst({
+    where: {
+      id: appId,
+      ...accessibleAppsWhere(user),
+    },
+    select: {
+      iconPath: true,
+    },
+  });
+
+  if (!app || !isManagedIconPath(app.iconPath)) {
+    throw new ApiError(404, "Application icon not found or inaccessible");
+  }
+
+  const resolvedPath = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, app.iconPath);
+  const contentType = imageContentTypeForPath(app.iconPath);
+
+  if (!resolvedPath || !contentType || !fs.existsSync(resolvedPath.filePath)) {
+    throw new ApiError(404, "Application icon not found or inaccessible");
+  }
+
+  return {
+    filePath: resolvedPath.filePath,
+    contentType,
+  };
+}
+
 export async function prepareDownload(
   appId: string,
-  user: AuthenticatedRequestUser,
+  user: AuthenticatedRequestUser | undefined,
   options: {
     deviceId?: string;
     versionCode?: number;
@@ -415,11 +466,11 @@ export async function prepareDownload(
       appId: app.id,
       appVersionId: version.id,
       deviceId: options.deviceId,
-      userId: user.userId,
+      userId: user?.userId,
       action: "DOWNLOAD",
       status: "SUCCESS",
       requestedVersionCode: version.versionCode,
-      details: "APK download served by protected endpoint",
+      details: user ? "APK download served by authenticated endpoint" : "APK download served by public catalog endpoint",
     },
   });
 
@@ -434,3 +485,22 @@ export async function prepareDownload(
     },
   };
 }
+export async function preparePdbStoreDownload() {
+  const app = await prisma.app.findFirst({
+    where: {
+      packageName: "com.company.corporateappstore.corporate_app_store",
+      status: "ACTIVE",
+      requiresExplicitAccess: false,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!app) {
+    throw new ApiError(404, "PDBStore is not available for public download");
+  }
+
+  return prepareDownload(app.id, undefined, {});
+}
+

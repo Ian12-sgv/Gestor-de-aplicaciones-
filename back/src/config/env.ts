@@ -28,6 +28,9 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default("15m"),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   APK_STORAGE_DIR: z.string().default("./storage/apks"),
+  // Optional: defaults to a "media" folder next to APK_STORAGE_DIR.
+  MEDIA_STORAGE_DIR: z.string().trim().min(1).optional(),
+  ADMIN_WEB_DIR: z.string().default("./admin-web"),
   APK_AUTO_IMPORT_ENABLED: z
     .enum(["true", "false"])
     .optional()
@@ -58,6 +61,10 @@ const isUsingLocalDotenv =
   fs.existsSync(path.resolve(process.cwd(), ".env")) &&
   (envData.NODE_ENV !== "production" || envData.ALLOW_DOTENV_IN_PROD);
 const resolvedApkStorageDir = path.resolve(process.cwd(), envData.APK_STORAGE_DIR);
+const resolvedMediaStorageDir = envData.MEDIA_STORAGE_DIR
+  ? path.resolve(process.cwd(), envData.MEDIA_STORAGE_DIR)
+  : path.join(path.dirname(resolvedApkStorageDir), "media");
+const resolvedAdminWebDir = path.resolve(process.cwd(), envData.ADMIN_WEB_DIR);
 
 if (envData.NODE_ENV === "production") {
   validateProductionEnvironment(envData);
@@ -66,6 +73,8 @@ if (envData.NODE_ENV === "production") {
 export const env = {
   ...envData,
   APK_STORAGE_DIR: resolvedApkStorageDir,
+  MEDIA_STORAGE_DIR: resolvedMediaStorageDir,
+  ADMIN_WEB_DIR: resolvedAdminWebDir,
   CONFIG_SOURCE: isUsingLocalDotenv ? "local-dotenv" : "runtime-environment",
 };
 
@@ -86,6 +95,10 @@ function validateProductionEnvironment(data: z.infer<typeof envSchema>): void {
 
   if (!path.isAbsolute(data.APK_STORAGE_DIR)) {
     errors.push("APK_STORAGE_DIR must be an absolute private path in production.");
+  }
+
+  if (data.MEDIA_STORAGE_DIR && !path.isAbsolute(data.MEDIA_STORAGE_DIR)) {
+    errors.push("MEDIA_STORAGE_DIR must be an absolute private path in production.");
   }
 
   if (isPublicBindHost(data.HOST)) {

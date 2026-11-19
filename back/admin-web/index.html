@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b7468" />
+    <title>PDB Store - Administracion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section id="login-view" class="auth-shell">
+      <div class="auth-card">
+        <div class="brand-mark">P</div>
+        <p class="eyebrow">PDB CORPORATIVO</p>
+        <h1>Administra tus aplicaciones</h1>
+        <p class="muted">Publica APKs, asigna iconos y manten el catalogo corporativo actualizado.</p>
+        <form id="login-form" class="form-stack">
+          <label>Usuario o correo<input name="identifier" autocomplete="username" required /></label>
+          <label>Contrasena<input name="password" type="password" autocomplete="current-password" required /></label>
+          <button class="button primary" type="submit">Iniciar sesion</button>
+        </form>
+        <form id="password-form" class="form-stack hidden">
+          <p class="notice">Debes definir una nueva contrasena antes de administrar el catalogo.</p>
+          <label>Contrasena actual<input name="currentPassword" type="password" autocomplete="current-password" required /></label>
+          <label>Nueva contrasena<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+          <button class="button primary" type="submit">Actualizar contrasena</button>
+        </form>
+        <p id="auth-error" class="form-error" role="alert"></p>
+      </div>
+    </section>
+
+    <main id="admin-view" class="admin-shell hidden">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark small">P</span><span>PDB Store</span></div>
+        <nav><a class="active" href="#catalogo">Aplicaciones</a></nav>
+        <div class="sidebar-user"><strong id="user-name">-</strong><span id="user-roles"></span><button id="logout-button" class="text-button">Cerrar sesion</button></div>
+      </aside>
+
+      <section class="workspace" id="catalogo">
+        <header class="topbar">
+          <div><p class="eyebrow">CATALOGO CORPORATIVO</p><h1>Aplicaciones</h1></div>
+          <button id="new-app-button" class="button primary">+ Nueva aplicacion</button>
+        </header>
+
+        <div class="metrics">
+          <article><span>Total</span><strong id="metric-total">0</strong></article>
+          <article><span>Activas</span><strong id="metric-active">0</strong></article>
+          <article><span>Borradores</span><strong id="metric-draft">0</strong></article>
+        </div>
+
+        <div class="content-grid">
+          <section class="catalog-panel">
+            <div class="panel-heading"><div><h2>Catalogo</h2><p id="catalog-summary" class="muted">Cargando aplicaciones...</p></div><button id="refresh-button" class="icon-button" title="Actualizar">Actualizar</button></div>
+            <div id="app-list" class="app-list"></div>
+          </section>
+
+          <aside id="editor" class="editor-panel empty"><div class="empty-state"><span>+</span><h2>Selecciona una aplicacion</h2><p>Desde aqui podras modificar sus datos, imagen, APK y estado.</p></div></aside>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="new-app-dialog" class="dialog">
+      <form id="new-app-form" class="dialog-card form-stack">
+        <div class="dialog-heading"><div><p class="eyebrow">NUEVA APLICACION</p><h2>Crear borrador</h2></div><button class="icon-button" type="button" data-close-dialog>Cerrar</button></div>
+        <label>Nombre visible<input name="displayName" maxlength="150" required placeholder="Inventario" /></label>
+        <label>Paquete Android<input name="packageName" maxlength="255" required placeholder="com.empresa.inventario" /></label>
+        <label>Slug <input name="slug" maxlength="150" placeholder="inventario" /></label>
+        <label>Descripcion corta<textarea name="shortDescription" maxlength="300" placeholder="Resumen para el catalogo"></textarea></label>
+        <label>Categoria<input name="category" maxlength="100" placeholder="Operaciones" /></label>
+        <label class="checkbox"><input name="requiresExplicitAccess" type="checkbox" /> Requiere autorizacion explicita</label>
+        <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>Cancelar</button><button class="button primary" type="submit">Crear aplicacion</button></div>
+        <p id="new-app-error" class="form-error"></p>
+      </form>
+    </dialog>
+
+    <template id="editor-template">
+      <div class="editor-header"><div class="app-icon preview" data-icon-preview>+</div><div><p class="eyebrow" data-package></p><h2 data-name></h2></div></div>
+      <div class="status-row"><label>Estado<select data-status><option value="DRAFT">Borrador</option><option value="ACTIVE">Activa</option><option value="DISABLED">Desactivada</option><option value="ARCHIVED">Archivada</option></select></label><span class="status-badge" data-status-badge></span></div>
+      <p class="notice hidden" data-visibility-notice></p>
+      <form data-edit-form class="form-stack compact">
+        <h3>Informacion</h3>
+        <label>Nombre<input name="displayName" maxlength="150" required /></label>
+        <label>Slug<input name="slug" maxlength="150" required /></label>
+        <label>Descripcion corta<textarea name="shortDescription" maxlength="300"></textarea></label>
+        <label>Descripcion<textarea name="description" maxlength="4000"></textarea></label>
+        <label>Categoria<input name="category" maxlength="100" /></label>
+        <label class="checkbox"><input name="requiresExplicitAccess" type="checkbox" /> Requiere autorizacion explicita</label>
+        <button class="button secondary" type="submit">Guardar cambios</button>
+      </form>
+      <form data-icon-form class="form-stack compact" enctype="multipart/form-data"><h3>Icono</h3><p class="muted">PNG, JPEG o WebP - maximo 5 MB.</p><input name="icon" type="file" accept="image/png,image/jpeg,image/webp" required /><div class="inline-actions"><button class="button secondary" type="submit">Subir icono</button><button class="text-button danger" type="button" data-delete-icon>Quitar</button></div></form>
+      <form data-version-form class="form-stack compact" enctype="multipart/form-data"><h3>Instalar / actualizar APK</h3><p class="muted">La version y el codigo se leen del APK automaticamente. Sube un APK con un codigo mayor para que los celulares vean "Actualizar".</p><label>APK<input name="apkFile" type="file" accept=".apk,application/vnd.android.package-archive" required /></label><label>Novedades<textarea name="changelog" maxlength="4000" placeholder="Cambios incluidos en esta version"></textarea></label><label class="checkbox"><input name="isMandatory" type="checkbox" /> Actualizacion obligatoria</label><button class="button primary" type="submit">Subir APK</button><progress data-upload-progress class="hidden" max="100" value="0"></progress></form>
+      <section class="versions"><h3>Versiones publicadas</h3><div data-versions></div></section>
+      <button class="text-button danger delete-app" type="button" data-delete-app>Eliminar aplicacion</button>
+      <p class="form-error" data-editor-error></p>
+    </template>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

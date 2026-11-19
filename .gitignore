@@ -31,3 +31,13 @@ storage/
 
 .vscode/
 .idea/
+
+deploy/
+
+# Binarios y artefactos de build
+*.apk
+*.rar
+apk/
+front/releases/
+front/pixel6-icons-test*.png
+front/pdbstore-window.xml

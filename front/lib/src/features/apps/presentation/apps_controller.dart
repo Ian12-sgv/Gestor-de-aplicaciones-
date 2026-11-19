@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/presentation/auth_controller.dart';
+
 import '../../device/domain/device_profile.dart';
 import '../../device/presentation/device_controller.dart';
 import '../data/app_runtime_service.dart';
@@ -51,7 +52,9 @@ class AppsController extends AsyncNotifier<List<CorporateApp>> {
   }
 
   Future<void> refreshCatalog() async {
-    state = const AsyncLoading();
+    // Keep showing the current catalog while refreshing (e.g. on every resume
+    // after the Android installer closes) instead of flashing a spinner.
+    state = const AsyncLoading<List<CorporateApp>>().copyWithPrevious(state);
     state = await AsyncValue.guard(() async {
       final deviceProfile = await _resolveRegisteredDeviceProfile(ref);
       final apps = await ref.read(appsRepositoryProvider).fetchApps(

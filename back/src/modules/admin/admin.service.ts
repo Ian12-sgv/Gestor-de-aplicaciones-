@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
@@ -8,12 +9,20 @@ import {
   resolveStoredApkPath,
 } from "../../utils/apk";
 import { ApiError } from "../../utils/api-error";
+import { readApkManifestMetadata, type ApkManifestMetadata } from "../../utils/apk-manifest";
 import {
   ensureDirectory,
   moveFileToDirectory,
   removeDirectoryIfExists,
   removeFileIfExists,
 } from "../../utils/fs";
+import {
+  createIconRelativePath,
+  imageContentTypeForPath,
+  inspectUploadedImage,
+  isManagedIconPath,
+  resolveStoredMediaPath,
+} from "../../utils/media";
 import { hashPassword } from "../../utils/password";
 import { slugify } from "../../utils/strings";
 import { revokeAllSessionsForUser } from "../auth/auth.service";
@@ -24,12 +33,29 @@ import type {
   CreateUserInput,
   ListInstallationLogsQuery,
   RevokeUserAccessInput,
+  UpdateAppInput,
   UpdateAppStatusInput,
   UpdateVersionMandatoryInput,
   UpsertAppUserAccessInput,
 } from "./admin.schemas";
 
 export async function createApp(input: CreateAppInput, user: AuthenticatedRequestUser) {
+  const existing = await prisma.app.findFirst({
+    where: {
+      OR: [{ packageName: input.packageName }, { slug: input.slug ?? slugify(input.displayName) }],
+    },
+    select: { packageName: true },
+  });
+
+  if (existing) {
+    throw new ApiError(
+      409,
+      existing.packageName === input.packageName
+        ? `An application with package ${input.packageName} already exists.`
+        : "An application with the same slug already exists.",
+    );
+  }
+
   const app = await prisma.app.create({
     data: {
       packageName: input.packageName,
@@ -47,6 +73,85 @@ export async function createApp(input: CreateAppInput, user: AuthenticatedReques
   });
 
   return app;
+}
+
+export async function listAdminApps() {
+  return prisma.app.findMany({
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      packageName: true,
+      slug: true,
+      displayName: true,
+      shortDescription: true,
+      description: true,
+      iconPath: true,
+      category: true,
+      status: true,
+      requiresExplicitAccess: true,
+      createdAt: true,
+      updatedAt: true,
+      versions: {
+        orderBy: { versionCode: "desc" },
+        select: {
+          id: true,
+          versionName: true,
+          versionCode: true,
+          isMandatory: true,
+          releasedAt: true,
+        },
+      },
+    },
+  });
+}
+
+export async function updateApp(appId: string, input: UpdateAppInput) {
+  try {
+    return await prisma.app.update({
+      where: { id: appId },
+      data: {
+        slug: input.slug,
+        displayName: input.displayName,
+        shortDescription: input.shortDescription,
+        description: input.description,
+        category: input.category,
+        requiresExplicitAccess: input.requiresExplicitAccess,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      throw new ApiError(404, "Application not found");
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(409, "An application with the same slug already exists.");
+    }
+
+    throw error;
+  }
+}
+
+export async function getAdminAppIcon(appId: string) {
+  const app = await prisma.app.findUnique({
+    where: { id: appId },
+    select: { iconPath: true },
+  });
+
+  if (!app || !isManagedIconPath(app.iconPath)) {
+    throw new ApiError(404, "Application icon not found");
+  }
+
+  const resolvedPath = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, app.iconPath);
+  const contentType = imageContentTypeForPath(app.iconPath);
+
+  if (!resolvedPath || !contentType || !fs.existsSync(resolvedPath.filePath)) {
+    throw new ApiError(404, "Application icon not found");
+  }
+
+  return {
+    filePath: resolvedPath.filePath,
+    contentType,
+  };
 }
 
 export async function createAppVersion(
@@ -77,11 +182,23 @@ export async function createAppVersion(
     throw new ApiError(400, "An uploaded APK or apkRelativePath is required");
   }
 
+  let versionInfo: { versionCode: number; versionName: string };
+
+  try {
+    versionInfo = await resolveVersionInfo(app.packageName, input, uploadedFile?.path ?? null);
+  } catch (error) {
+    if (cleanupSourceFileOnError) {
+      await removeFileIfExists(uploadedFile?.path);
+    }
+
+    throw error;
+  }
+
   const duplicateVersion = await prisma.appVersion.findUnique({
     where: {
       appId_versionCode: {
         appId,
-        versionCode: input.versionCode,
+        versionCode: versionInfo.versionCode,
       },
     },
     select: {
@@ -96,7 +213,7 @@ export async function createAppVersion(
 
     throw new ApiError(
       409,
-      `Version code ${input.versionCode} already exists for ${app.displayName}.`,
+      `Version code ${versionInfo.versionCode} already exists for ${app.displayName}.`,
     );
   }
 
@@ -105,7 +222,7 @@ export async function createAppVersion(
 
   try {
     const resolvedApk = uploadedFile
-      ? await prepareUploadedApk(app, input, uploadedFile)
+      ? await prepareUploadedApk(app, input, uploadedFile, versionInfo.versionCode)
       : await prepareReferencedApk(input);
 
     if (uploadedFile) {
@@ -116,8 +233,8 @@ export async function createAppVersion(
     const version = await prisma.appVersion.create({
       data: {
         appId,
-        versionName: input.versionName,
-        versionCode: input.versionCode,
+        versionName: versionInfo.versionName,
+        versionCode: versionInfo.versionCode,
         changelog: input.changelog,
         sha256: resolvedApk.metadata.sha256,
         minSupportedVersionCode: input.minSupportedVersionCode,
@@ -146,7 +263,7 @@ export async function createAppVersion(
     ) {
       throw new ApiError(
         409,
-        `Version code ${input.versionCode} already exists for ${app.displayName}.`,
+        `Version code ${versionInfo.versionCode} already exists for ${app.displayName}.`,
       );
     }
 
@@ -154,17 +271,99 @@ export async function createAppVersion(
   }
 }
 
-export async function updateAppStatus(appId: string, input: UpdateAppStatusInput) {
-  const app = await prisma.app.update({
-    where: {
-      id: appId,
-    },
-    data: {
-      status: input.status,
-    },
+export async function uploadAppIcon(
+  appId: string,
+  uploadedFile: Express.Multer.File | undefined,
+) {
+  if (!uploadedFile) {
+    throw new ApiError(400, "An icon image is required.");
+  }
+
+  let persistedFilePath: string | null = null;
+
+  try {
+    const app = await prisma.app.findUnique({
+      where: { id: appId },
+      select: { id: true, iconPath: true },
+    });
+
+    if (!app) {
+      throw new ApiError(404, "Application not found");
+    }
+
+    const image = await inspectUploadedImage(uploadedFile);
+    const relativePath = createIconRelativePath(image.contentType);
+    const resolvedPath = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, relativePath);
+
+    if (!resolvedPath) {
+      throw new ApiError(500, "Invalid media path configuration");
+    }
+
+    persistedFilePath = await moveFileToDirectory(
+      uploadedFile.path,
+      path.dirname(resolvedPath.filePath),
+      path.basename(resolvedPath.filePath),
+    );
+
+    const updatedApp = await prisma.app.update({
+      where: { id: appId },
+      data: { iconPath: relativePath },
+    });
+    persistedFilePath = null;
+
+    if (isManagedIconPath(app.iconPath)) {
+      const previousPath = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, app.iconPath);
+      await removeFileIfExists(previousPath?.filePath);
+    }
+
+    return updatedApp;
+  } catch (error) {
+    await removeFileIfExists(uploadedFile.path);
+    await removeFileIfExists(persistedFilePath);
+    throw error;
+  }
+}
+
+export async function deleteAppIcon(appId: string) {
+  const app = await prisma.app.findUnique({
+    where: { id: appId },
+    select: { id: true, iconPath: true },
   });
 
-  return app;
+  if (!app) {
+    throw new ApiError(404, "Application not found");
+  }
+
+  const updatedApp = await prisma.app.update({
+    where: { id: appId },
+    data: { iconPath: null },
+  });
+
+  if (isManagedIconPath(app.iconPath)) {
+    const previousPath = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, app.iconPath);
+    await removeFileIfExists(previousPath?.filePath);
+  }
+
+  return updatedApp;
+}
+
+export async function updateAppStatus(appId: string, input: UpdateAppStatusInput) {
+  try {
+    return await prisma.app.update({
+      where: {
+        id: appId,
+      },
+      data: {
+        status: input.status,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      throw new ApiError(404, "Application not found");
+    }
+
+    throw error;
+  }
 }
 
 export async function deleteAppFromStore(appId: string, actor: AuthenticatedRequestUser) {
@@ -176,6 +375,7 @@ export async function deleteAppFromStore(appId: string, actor: AuthenticatedRequ
       id: true,
       displayName: true,
       packageName: true,
+      iconPath: true,
       versions: {
         select: {
           apkPath: true,
@@ -238,6 +438,11 @@ export async function deleteAppFromStore(appId: string, actor: AuthenticatedRequ
   });
 
   await removeDirectoryIfExists(path.join(env.APK_STORAGE_DIR, app.packageName));
+  if (isManagedIconPath(app.iconPath)) {
+    const iconFile = resolveStoredMediaPath(env.MEDIA_STORAGE_DIR, app.iconPath);
+    await removeFileIfExists(iconFile?.filePath);
+  }
+
 
   return {
     ...result,
@@ -596,6 +801,7 @@ async function prepareUploadedApk(
   },
   input: CreateAppVersionInput,
   uploadedFile: Express.Multer.File,
+  versionCode: number,
 ) {
   const inspection = await inspectApkFile(uploadedFile.path, {
     declaredFileName: uploadedFile.originalname,
@@ -604,8 +810,8 @@ async function prepareUploadedApk(
   });
 
   const storageRoot = env.APK_STORAGE_DIR;
-  const versionDirectory = path.join(storageRoot, app.packageName, String(input.versionCode));
-  const fileName = `${app.slug}-v${input.versionCode}.apk`;
+  const versionDirectory = path.join(storageRoot, app.packageName, String(versionCode));
+  const fileName = `${app.slug}-v${versionCode}.apk`;
 
   await ensureDirectory(versionDirectory);
   const finalPath = await moveFileToDirectory(uploadedFile.path, versionDirectory, fileName);
@@ -619,6 +825,50 @@ async function prepareUploadedApk(
     filePath: resolvedPath.filePath,
     relativePath: resolvedPath.relativePath,
     metadata: inspection,
+  };
+}
+
+// Reads the version from the APK itself so devices compare against the real versionCode, and
+// guards against uploading an APK into the wrong catalog entry (e.g. the store APK as a version
+// of another app), which devices would download but never be able to install.
+async function resolveVersionInfo(
+  expectedPackageName: string,
+  input: CreateAppVersionInput,
+  apkFilePath: string | null,
+): Promise<{ versionCode: number; versionName: string }> {
+  if (!apkFilePath) {
+    if (!input.versionCode || !input.versionName) {
+      throw new ApiError(400, "versionName and versionCode are required when using apkRelativePath.");
+    }
+
+    return { versionCode: input.versionCode, versionName: input.versionName };
+  }
+
+  const manifest: ApkManifestMetadata = await readApkManifestMetadata(apkFilePath);
+
+  if (manifest.packageName !== expectedPackageName) {
+    throw new ApiError(
+      400,
+      `The APK belongs to package ${manifest.packageName}, but this app is ${expectedPackageName}. Upload it to the matching app.`,
+      { apkPackageName: manifest.packageName, expectedPackageName },
+    );
+  }
+
+  if (input.versionCode !== undefined && manifest.versionCode !== input.versionCode) {
+    throw new ApiError(
+      400,
+      `The APK has versionCode ${manifest.versionCode} (${manifest.versionName}), but ${input.versionCode} was entered.`,
+      {
+        apkVersionCode: manifest.versionCode,
+        apkVersionName: manifest.versionName,
+        expectedVersionCode: input.versionCode,
+      },
+    );
+  }
+
+  return {
+    versionCode: manifest.versionCode,
+    versionName: input.versionName ?? manifest.versionName,
   };
 }
 

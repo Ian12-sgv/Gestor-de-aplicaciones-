@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/presentation/auth_controller.dart';
@@ -31,10 +33,12 @@ class AppActionResult {
   const AppActionResult({
     required this.success,
     required this.message,
+    this.keepDownloadProgress = false,
   });
 
   final bool success;
   final String message;
+  final bool keepDownloadProgress;
 }
 
 class AppRuntimeService {
@@ -49,6 +53,29 @@ class AppRuntimeService {
   final Dio _client;
   final DeviceRepository _deviceRepository;
   final AndroidAppBridge _androidAppBridge;
+
+  /// Downloads in progress keyed by package name (value: 0..1, or null when the
+  /// size is unknown). Shared by the catalog and the detail screen.
+  final ValueNotifier<Map<String, double?>> activeDownloads =
+      ValueNotifier<Map<String, double?>>(const <String, double?>{});
+
+  bool isDownloading(String packageName) =>
+      activeDownloads.value.containsKey(packageName);
+
+  void _setDownloadProgress(String packageName, double? progress) {
+    activeDownloads.value = <String, double?>{
+      ...activeDownloads.value,
+      packageName: progress,
+    };
+  }
+
+  void _clearDownload(String packageName) {
+    if (!isDownloading(packageName)) {
+      return;
+    }
+    activeDownloads.value = Map<String, double?>.of(activeDownloads.value)
+      ..remove(packageName);
+  }
 
   Future<List<CorporateApp>> enrichAndSyncApps(
     List<CorporateApp> apps, {
@@ -197,6 +224,74 @@ class AppRuntimeService {
       );
     }
 
+    if (isDownloading(app.packageName)) {
+      return AppActionResult(
+        success: false,
+        message: 'La descarga de ${app.name} ya esta en curso.',
+        keepDownloadProgress: true,
+      );
+    }
+
+    // Notifications are only used to install after leaving the store; without
+    // them the installer still opens automatically while the store is visible.
+    await _androidAppBridge.ensureNotificationPermission();
+
+    final backgroundDeviceId = deviceProfile?.deviceId;
+    final installAction =
+        app.primaryAction == AppPrimaryAction.update ? 'UPDATE' : 'INSTALL';
+    final downloadUri = Uri.parse(_client.options.baseUrl)
+        .resolve(latestVersion.downloadPath)
+        .replace(
+      queryParameters: <String, String>{
+        if (backgroundDeviceId != null) 'deviceId': backgroundDeviceId,
+      },
+    );
+    final backgroundDownload = await _androidAppBridge.enqueueApkDownload(
+      downloadUri: downloadUri,
+      fileName:
+          '${_sanitizeFileName(app.packageName)}-${latestVersion.versionCode}.apk',
+      appName: app.name,
+      packageName: app.packageName,
+    );
+
+    if (backgroundDownload.queued) {
+      if (backgroundDeviceId != null) {
+        await _safeReport(
+          deviceId: backgroundDeviceId,
+          appId: app.id,
+          appVersionId: latestVersion.id,
+          installedVersionCode: latestVersion.versionCode,
+          installedVersionName: latestVersion.versionName,
+          action: 'DOWNLOAD',
+          status: 'PENDING',
+          notes: backgroundDownload.message,
+          deviceAppStatus: app.isInstalled ? 'INSTALLED' : 'NOT_INSTALLED',
+        );
+      }
+      final downloadId = backgroundDownload.downloadId;
+      final filePath = backgroundDownload.filePath;
+      if (downloadId != null && filePath != null) {
+        _setDownloadProgress(app.packageName, 0);
+        onDownloadProgress?.call(0);
+        unawaited(_watchBackgroundDownload(
+          app: app,
+          downloadId: downloadId,
+          apkPath: filePath,
+          deviceId: backgroundDeviceId,
+          installAction: installAction,
+          onDownloadProgress: onDownloadProgress,
+        ));
+      } else {
+        onDownloadProgress?.call(null);
+      }
+      return AppActionResult(
+        success: true,
+        message:
+            'Descargando ${app.name}. El instalador se abrira al terminar.',
+        keepDownloadProgress: true,
+      );
+    }
+
     final apkDirectoryPath = await _androidAppBridge.getApkCacheDirectory();
     final apkDirectory = Directory(
       apkDirectoryPath?.trim().isNotEmpty == true
@@ -210,10 +305,9 @@ class AppRuntimeService {
     final apkFile =
         File('${apkDirectory.path}${Platform.pathSeparator}$fileName');
     final deviceId = deviceProfile?.deviceId;
-    final installAction =
-        app.primaryAction == AppPrimaryAction.update ? 'UPDATE' : 'INSTALL';
 
     try {
+      _setDownloadProgress(app.packageName, 0);
       onDownloadProgress?.call(0);
       await _client.download(
         latestVersion.downloadPath,
@@ -229,16 +323,20 @@ class AppRuntimeService {
         ),
         onReceiveProgress: (received, total) {
           if (total <= 0) {
+            _setDownloadProgress(app.packageName, null);
             onDownloadProgress?.call(null);
             return;
           }
 
           final progress = (received / total).clamp(0, 1).toDouble();
+          _setDownloadProgress(app.packageName, progress);
           onDownloadProgress?.call(progress);
         },
       );
+      _clearDownload(app.packageName);
       onDownloadProgress?.call(1);
     } on DioException catch (error) {
+      _clearDownload(app.packageName);
       if (deviceId != null) {
         await _safeReport(
           deviceId: deviceId,
@@ -284,6 +382,71 @@ class AppRuntimeService {
     return AppActionResult(
       success: installResult.status == InstallLaunchStatus.launchedInstaller,
       message: resolvedMessage,
+    );
+  }
+
+  Future<void> _watchBackgroundDownload({
+    required CorporateApp app,
+    required int downloadId,
+    required String apkPath,
+    required String? deviceId,
+    required String installAction,
+    required void Function(double? progress)? onDownloadProgress,
+  }) async {
+    BackgroundDownloadProgress? progress;
+    try {
+      while (true) {
+        progress = await _androidAppBridge.getApkDownloadProgress(downloadId);
+        if (progress == null || progress.isFinished) {
+          break;
+        }
+        _setDownloadProgress(app.packageName, progress.fraction);
+        onDownloadProgress?.call(progress.fraction);
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+      }
+    } finally {
+      _clearDownload(app.packageName);
+    }
+
+    if (progress == null || !progress.isSuccessful) {
+      onDownloadProgress?.call(null);
+      if (deviceId != null) {
+        await _safeReport(
+          deviceId: deviceId,
+          appId: app.id,
+          appVersionId: app.latestVersion?.id,
+          action: 'DOWNLOAD',
+          status: 'FAILED',
+          notes: 'La descarga en segundo plano no se completo.',
+          deviceAppStatus: app.isInstalled ? 'INSTALLED' : 'NOT_INSTALLED',
+        );
+      }
+      return;
+    }
+
+    onDownloadProgress?.call(1);
+    // Like Play Store: open the installer as soon as the APK is ready.
+    final installResult = await _androidAppBridge.installDownloadedApk(
+      downloadId: downloadId,
+      apkPath: apkPath,
+    );
+    if (installResult == null || deviceId == null) {
+      return;
+    }
+
+    final latestVersion = app.latestVersion;
+    await _safeReport(
+      deviceId: deviceId,
+      appId: app.id,
+      appVersionId: latestVersion?.id,
+      installedVersionCode: latestVersion?.versionCode,
+      installedVersionName: latestVersion?.versionName,
+      action: installAction,
+      status: installResult.status == InstallLaunchStatus.launchedInstaller
+          ? 'PENDING'
+          : 'FAILED',
+      notes: installResult.message,
+      deviceAppStatus: app.isInstalled ? 'INSTALLED' : 'NOT_INSTALLED',
     );
   }
 
@@ -380,13 +543,27 @@ class AppRuntimeService {
         installedApp.versionCode != null &&
         installedApp.versionCode! < latestVersionCode;
 
-    return app.copyWith(
+    // What is installed on this phone is the source of truth; the server state
+    // may be stale (e.g. right after an update or an uninstall outside the store).
+    final installedVersionCode = installedApp.versionCode;
+    return CorporateApp(
+      id: app.id,
+      name: app.name,
+      packageName: app.packageName,
+      description: app.description,
+      iconPath: app.iconPath,
       installedVersion:
           installedApp.installed ? installedApp.versionName : null,
       installedVersionCode:
-          installedApp.installed ? installedApp.versionCode : null,
+          installedApp.installed ? installedVersionCode : null,
+      latestVersion: app.latestVersion,
       isInstalled: installedApp.installed,
-      updateAvailable: app.updateAvailable || localUpdateAvailable,
+      updateAvailable: installedApp.installed &&
+          (installedVersionCode == null
+              ? app.updateAvailable
+              : localUpdateAvailable),
+      status: app.status,
+      requiresExplicitAccess: app.requiresExplicitAccess,
     );
   }
 
@@ -423,6 +600,8 @@ class AppRuntimeService {
         'Sigue los pasos de Android para completar la instalacion.',
       InstallLaunchStatus.needsPermission =>
         'Android necesita permiso para instalar apps corporativas. Activalo y vuelve a intentar.',
+      InstallLaunchStatus.signatureConflict =>
+        'Esta version esta firmada con otra llave. Confirma en el aviso para desinstalar la version actual; la nueva se instalara despues.',
       InstallLaunchStatus.unavailable =>
         'No se pudo abrir el instalador de Android en este dispositivo.',
     };

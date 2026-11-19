@@ -1,9 +1,16 @@
 package com.company.corporateappstore.corporate_app_store
 
+import android.Manifest
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.Context
+import android.os.Environment
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -13,8 +20,67 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.security.MessageDigest
 
 class MainActivity : FlutterActivity() {
+    private var notificationPermissionResult: MethodChannel.Result? = null
+
+    // APK waiting to be installed once the conflicting (differently signed) version is removed.
+    private var pendingReinstall: PendingReinstall? = null
+
+    // Installers can only be launched while the store is on screen (Android blocks
+    // background activity starts); otherwise the "ready to install" notification is used.
+    private var isInForeground = false
+
+    // PACKAGE_ADDED/REPLACED are not delivered to manifest receivers on Android 8+,
+    // so listen at runtime while the store is alive.
+    private val packageInstallReceiver = PackageInstallReceiver()
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageInstallReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(packageInstallReceiver, filter)
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            unregisterReceiver(packageInstallReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Already unregistered.
+        }
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isInForeground = true
+    }
+
+    override fun onPause() {
+        isInForeground = false
+        super.onPause()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDownloadInstallIntent(intent)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        handleDownloadInstallIntent(intent)
+        resumePendingReinstall()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -65,6 +131,60 @@ class MainActivity : FlutterActivity() {
                     result.success(resolveApkCacheDirectory())
                 }
 
+                "ensureNotificationPermission" -> {
+                    ensureNotificationPermission(result)
+                }
+
+                "enqueueApkDownload" -> {
+                    val downloadUrl = call.argument<String>("downloadUrl")
+                    val fileName = call.argument<String>("fileName")
+                    val appName = call.argument<String>("appName")
+                    val targetPackageName = call.argument<String>("packageName")
+
+                    result.success(
+                        if (
+                            downloadUrl.isNullOrBlank() ||
+                            fileName.isNullOrBlank() ||
+                            appName.isNullOrBlank() ||
+                            targetPackageName.isNullOrBlank()
+                        ) {
+                            launchResult(
+                                status = "unavailable",
+                                message = "No se recibieron los datos necesarios para descargar la app.",
+                            )
+                        } else {
+                            enqueueApkDownload(
+                                downloadUrl = downloadUrl,
+                                fileName = fileName,
+                                appName = appName,
+                                targetPackageName = targetPackageName,
+                            )
+                        },
+                    )
+                }
+
+                "getApkDownloadProgress" -> {
+                    val downloadId = call.argument<Number>("downloadId")?.toLong()
+                    result.success(
+                        downloadId?.let { getApkDownloadProgress(it) },
+                    )
+                }
+
+                "installDownloadedApk" -> {
+                    val downloadId = call.argument<Number>("downloadId")?.toLong()
+                    val apkPath = call.argument<String>("apkPath")
+                    result.success(
+                        if (downloadId == null || apkPath.isNullOrBlank()) {
+                            launchResult(
+                                status = "unavailable",
+                                message = "No se recibio la descarga a instalar.",
+                            )
+                        } else {
+                            installDownloadedApk(downloadId, apkPath)
+                        },
+                    )
+                }
+
                 "installApk" -> {
                     val apkPath = call.argument<String>("apkPath")
                     result.success(
@@ -82,6 +202,170 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            return
+        }
+
+        val granted =
+            grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+        notificationPermissionResult?.success(granted)
+        notificationPermissionResult = null
+    }
+
+    private fun ensureNotificationPermission(result: MethodChannel.Result) {
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success(true)
+            return
+        }
+
+        if (notificationPermissionResult != null) {
+            result.success(false)
+            return
+        }
+
+        notificationPermissionResult = result
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST_CODE,
+        )
+    }
+
+    private fun enqueueApkDownload(
+        downloadUrl: String,
+        accessToken: String? = null,
+        fileName: String,
+        appName: String,
+        targetPackageName: String,
+    ): Map<String, Any> {
+        val downloadManager =
+            getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                ?: return launchResult(
+                    status = "unavailable",
+                    message = "El gestor de descargas de Android no esta disponible.",
+                )
+        val downloadsDirectory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?: return launchResult(
+                status = "unavailable",
+                message = "No hay almacenamiento disponible para guardar el APK.",
+            )
+        val safeFileName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val relativeDestination = "corporate_store_apks/$safeFileName"
+        val destinationFile = File(downloadsDirectory, relativeDestination)
+
+        if (!destinationFile.parentFile.exists() && !destinationFile.parentFile.mkdirs()) {
+            return launchResult(
+                status = "unavailable",
+                message = "No se pudo preparar el almacenamiento para la descarga.",
+            )
+        }
+
+        return try {
+            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
+                setTitle("Descargando $appName")
+                setDescription("La descarga continuara aunque cierres PDBStore.")
+                setMimeType(APK_MIME_TYPE)
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                setDestinationInExternalFilesDir(
+                    this@MainActivity,
+                    Environment.DIRECTORY_DOWNLOADS,
+                    relativeDestination,
+                )
+                if (!accessToken.isNullOrBlank()) {
+                    addRequestHeader("Authorization", "Bearer $accessToken")
+                }
+                addRequestHeader("Accept", APK_MIME_TYPE)
+            }
+            val downloadId = downloadManager.enqueue(request)
+            DownloadQueueStore.saveDownload(
+                context = applicationContext,
+                downloadId = downloadId,
+                filePath = destinationFile.absolutePath,
+                appName = appName,
+                packageName = targetPackageName,
+            )
+            mapOf(
+                "status" to "queued",
+                "message" to "Descarga iniciada en segundo plano. Te avisaremos cuando este lista para instalar.",
+                "downloadId" to downloadId,
+                "filePath" to destinationFile.absolutePath,
+            )
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Unable to enqueue APK download", error)
+            launchResult(
+                status = "unavailable",
+                message = "No se pudo iniciar la descarga del APK.",
+            )
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Android blocked APK download", error)
+            launchResult(
+                status = "unavailable",
+                message = "Android bloqueo la descarga del APK.",
+            )
+        }
+    }
+
+    private fun installDownloadedApk(downloadId: Long, apkPath: String): Map<String, Any> {
+        if (!isInForeground) {
+            return launchResult(
+                status = "deferred",
+                message = "La descarga termino. Toca la notificacion para instalar.",
+            )
+        }
+
+        // Installing from the open store: drop the pending "ready" notification.
+        DownloadQueueStore.readDownload(applicationContext, downloadId)?.let { record ->
+            DownloadQueueStore.markReadyForInstall(applicationContext, record)
+        }
+        DownloadQueueStore.removeDownload(applicationContext, downloadId)
+        ApkDownloadNotifications.cancelReadyToInstall(applicationContext, downloadId)
+        return installApk(apkPath)
+    }
+
+    private fun getApkDownloadProgress(downloadId: Long): Map<String, Any>? {
+        val downloadManager =
+            getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return null
+        val cursor = downloadManager.query(DownloadManager.Query().setFilterById(downloadId))
+            ?: return null
+
+        cursor.use {
+            if (!it.moveToFirst()) {
+                return null
+            }
+            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val received = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+            val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+            return mapOf(
+                "status" to status,
+                "receivedBytes" to received,
+                "totalBytes" to total,
+            )
+        }
+    }
+
+    private fun handleDownloadInstallIntent(intent: Intent?) {
+        if (intent?.action != ApkDownloadReceiver.ACTION_INSTALL_DOWNLOADED_APK) {
+            return
+        }
+
+        val apkPath = intent.getStringExtra(ApkDownloadReceiver.EXTRA_APK_PATH)
+        if (!apkPath.isNullOrBlank()) {
+            installApk(apkPath)
+        }
+        intent.action = null
     }
 
     private fun getInstallEnvironmentInfo(): Map<String, Any> {
@@ -240,6 +524,21 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        val signatureConflict = detectSignatureConflict(apkFile)
+        if (signatureConflict != null) {
+            Log.w(
+                TAG,
+                "Signature conflict for package=${signatureConflict.packageName}; " +
+                    "asking to uninstall the installed version before installing ${apkFile.absolutePath}",
+            )
+            showSignatureConflictDialog(signatureConflict, apkFile)
+            return launchResult(
+                status = "signatureConflict",
+                message = "La nueva version esta firmada con otra llave. " +
+                    "Confirma en el aviso para desinstalar la version actual y continuar.",
+            )
+        }
+
         val contentUri = createContentUriForApk(apkFile) ?: run {
             Log.w(
                 TAG,
@@ -288,6 +587,151 @@ class MainActivity : FlutterActivity() {
                 message = "No hay un instalador disponible para abrir el APK.",
             )
         }
+    }
+
+    /**
+     * Android refuses to update an app when the new APK is signed with a different key
+     * (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and the system installer only shows a generic
+     * "App not installed". Detect it up front so the user can remove the old version first.
+     */
+    private fun detectSignatureConflict(apkFile: File): SignatureConflict? {
+        val archiveInfo = readArchivePackageInfo(apkFile) ?: return null
+        val targetPackageName = archiveInfo.packageName ?: return null
+        if (targetPackageName == applicationContext.packageName) {
+            return null
+        }
+
+        val installedInfo = findPackageInfoWithSignatures(targetPackageName) ?: return null
+        val archiveSigners = signerDigests(archiveInfo, includeHistory = false)
+        val installedSigners = signerDigests(installedInfo, includeHistory = true)
+
+        if (archiveSigners.isEmpty() || installedSigners.isEmpty()) {
+            return null
+        }
+
+        if (archiveSigners.any { it in installedSigners }) {
+            return null
+        }
+
+        val appLabel = installedInfo.applicationInfo
+            ?.loadLabel(packageManager)
+            ?.toString()
+            ?: targetPackageName
+
+        return SignatureConflict(packageName = targetPackageName, appLabel = appLabel)
+    }
+
+    private fun showSignatureConflictDialog(conflict: SignatureConflict, apkFile: File) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Hay que reinstalar ${conflict.appLabel}")
+            .setMessage(
+                "La nueva version de ${conflict.appLabel} viene firmada con otra llave, " +
+                    "por eso Android no permite actualizarla encima de la actual.\n\n" +
+                    "Para continuar se desinstalara la version instalada y despues se " +
+                    "instalara la nueva. Los datos guardados en esa app dentro del " +
+                    "telefono se perderan.",
+            )
+            .setPositiveButton("Desinstalar y continuar") { _, _ ->
+                pendingReinstall = PendingReinstall(
+                    packageName = conflict.packageName,
+                    apkPath = apkFile.absolutePath,
+                )
+                val launch = uninstallApp(conflict.packageName)
+                if (launch["status"] != "launchedUninstaller") {
+                    pendingReinstall = null
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun resumePendingReinstall() {
+        val pending = pendingReinstall ?: return
+
+        // The uninstall may still be finishing right after we come back; give it a moment.
+        window.decorView.postDelayed({
+            if (pendingReinstall != pending) {
+                return@postDelayed
+            }
+            pendingReinstall = null
+
+            if (findPackageInfo(pending.packageName) != null) {
+                Log.i(TAG, "Uninstall of ${pending.packageName} was cancelled; skipping reinstall")
+                return@postDelayed
+            }
+
+            Log.i(TAG, "Old ${pending.packageName} removed; installing ${pending.apkPath}")
+            installApk(pending.apkPath)
+        }, REINSTALL_CHECK_DELAY_MS)
+    }
+
+    private fun readArchivePackageInfo(apkFile: File): PackageInfo? {
+        val path = apkFile.absolutePath
+        val info = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageArchiveInfo(
+                    path,
+                    PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageManager.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageArchiveInfo(path, PackageManager.GET_SIGNATURES)
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not read package info from ${apkFile.absolutePath}", error)
+            null
+        }
+
+        info?.applicationInfo?.apply {
+            sourceDir = path
+            publicSourceDir = path
+        }
+        return info
+    }
+
+    private fun findPackageInfoWithSignatures(packageName: String): PackageInfo? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()),
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            }
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
+    private fun signerDigests(packageInfo: PackageInfo, includeHistory: Boolean): Set<String> {
+        val signatures: Array<Signature>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = packageInfo.signingInfo ?: return emptySet()
+            when {
+                signingInfo.hasMultipleSigners() -> signingInfo.apkContentsSigners
+                includeHistory -> signingInfo.signingCertificateHistory
+                else -> signingInfo.signingCertificateHistory?.takeLast(1)?.toTypedArray()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.signatures
+        }
+
+        val digest = MessageDigest.getInstance("SHA-256")
+        return signatures.orEmpty()
+            .map { signature -> digest.digest(signature.toByteArray()).joinToString("") { "%02x".format(it) } }
+            .toSet()
     }
 
     private fun findPackageInfo(packageName: String): PackageInfo? {
@@ -417,5 +861,17 @@ class MainActivity : FlutterActivity() {
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         private const val CHANNEL_NAME = "corporate_app_store/android_apps"
         private const val TAG = "CorporateAppStore"
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 4102
+        private const val REINSTALL_CHECK_DELAY_MS = 1200L
     }
+
+    private data class SignatureConflict(
+        val packageName: String,
+        val appLabel: String,
+    )
+
+    private data class PendingReinstall(
+        val packageName: String,
+        val apkPath: String,
+    )
 }

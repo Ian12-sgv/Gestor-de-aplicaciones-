@@ -63,10 +63,7 @@ class CorporateApp {
       return AppPrimaryAction.install;
     }
 
-    final installed = SemanticVersion.parse(installedVersion!);
-    final latest = SemanticVersion.parse(latestVersion!.version);
-
-    if (installed.compareTo(latest) < 0) {
+    if (_isInstalledOlderThanLatest) {
       return AppPrimaryAction.update;
     }
 
@@ -74,16 +71,35 @@ class CorporateApp {
   }
 
   bool get hasUpdateAvailable {
-    if (updateAvailable) {
-      return true;
-    }
-
     if (latestVersion == null) {
       return false;
     }
 
+    // The versionCode read from the device is authoritative; the server flag
+    // and the free-text version name (e.g. "1.08" vs "1.0.8") can disagree.
+    if (_canCompareVersionCodes) {
+      return _isInstalledOlderThanLatest;
+    }
+
+    if (updateAvailable) {
+      return true;
+    }
+
     if (!isInstalled || installedVersion == null) {
       return false;
+    }
+
+    return _isInstalledOlderThanLatest;
+  }
+
+  bool get _canCompareVersionCodes =>
+      isInstalled &&
+      installedVersionCode != null &&
+      (latestVersion?.versionCode ?? 0) > 0;
+
+  bool get _isInstalledOlderThanLatest {
+    if (_canCompareVersionCodes) {
+      return installedVersionCode! < latestVersion!.versionCode;
     }
 
     return SemanticVersion.parse(installedVersion!).compareTo(
@@ -132,7 +148,7 @@ class CorporateApp {
       description: (json['shortDescription'] as String?) ??
           (json['description'] as String? ?? ''),
       iconPath:
-          (json['iconPath'] as String?) ?? (json['iconUrl'] as String? ?? ''),
+          (json['iconUrl'] as String?) ?? (json['iconPath'] as String? ?? ''),
       installedVersion: (installedState?['installedVersionName'] as String?) ??
           (json['installedVersion'] as String?),
       installedVersionCode: _parseInt(

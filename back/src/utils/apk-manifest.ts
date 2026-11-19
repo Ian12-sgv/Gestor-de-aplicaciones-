@@ -3,6 +3,7 @@ import { access, readdir } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ApiError } from "./api-error";
+import { readBinaryManifestMetadata } from "./apk-binary-manifest";
 
 const execFileAsync = promisify(execFile);
 const aaptExecutableName = process.platform === "win32" ? "aapt.exe" : "aapt";
@@ -16,6 +17,33 @@ export type ApkManifestMetadata = {
 };
 
 export async function readApkManifestMetadata(filePath: string): Promise<ApkManifestMetadata> {
+  try {
+    return await readApkManifestMetadataWithAapt(filePath);
+  } catch (aaptError) {
+    if (!(aaptError instanceof ApiError) || aaptError.statusCode < 500) {
+      throw aaptError;
+    }
+
+    // aapt is not installed (or failed); fall back to the built-in binary manifest reader.
+    try {
+      const metadata = await readBinaryManifestMetadata(filePath);
+      return {
+        packageName: metadata.packageName,
+        versionCode: metadata.versionCode,
+        versionName: metadata.versionName || String(metadata.versionCode),
+        displayName: null,
+        aaptPath: "builtin",
+      };
+    } catch (parserError) {
+      throw new ApiError(400, "The file is not a readable Android APK.", {
+        aapt: aaptError.message,
+        parser: parserError instanceof Error ? parserError.message : String(parserError),
+      });
+    }
+  }
+}
+
+async function readApkManifestMetadataWithAapt(filePath: string): Promise<ApkManifestMetadata> {
   const aaptPath = await resolveAaptPath();
   let stdout: string;
 

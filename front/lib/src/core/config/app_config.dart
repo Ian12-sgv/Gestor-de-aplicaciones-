@@ -10,7 +10,7 @@ class AppConfig {
   factory AppConfig.fromEnvironment() {
     const defaultUrl = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://127.0.0.1:5201',
+      defaultValue: 'https://pdbstore.apipalacio.com',
     );
 
     return AppConfig(

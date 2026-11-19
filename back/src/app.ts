@@ -8,6 +8,7 @@ import { createRateLimiter } from "./middlewares/rate-limit";
 import { requestContext } from "./middlewares/request-context";
 import { adminRoutes } from "./modules/admin/admin.routes";
 import { appsRoutes } from "./modules/apps/apps.routes";
+import { downloadPdbStoreController } from "./modules/apps/apps.controller";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { devicesRoutes } from "./modules/devices/devices.routes";
 import { healthRoutes } from "./modules/health/health.routes";
@@ -22,7 +23,15 @@ const apiRateLimiter = createRateLimiter({
 
 app.disable("x-powered-by");
 app.set("trust proxy", env.TRUST_PROXY === "false" ? false : env.TRUST_PROXY);
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        "img-src": ["'self'", "data:", "blob:"],
+      },
+    },
+  }),
+);
 app.use(
   cors({
     origin:
@@ -35,7 +44,9 @@ app.use(
 app.use(requestContext);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use("/admin", express.static(env.ADMIN_WEB_DIR, { index: "index.html" }));
 
+app.get("/descargar/pdbstore.apk", apiRateLimiter, downloadPdbStoreController);
 app.get("/", (_req, res) => {
   res.status(200).json({
     service: "corporate-app-store-api",
@@ -46,7 +57,7 @@ app.get("/", (_req, res) => {
 app.use(`${env.API_PREFIX}/health`, healthRoutes);
 app.use(env.API_PREFIX, apiRateLimiter);
 app.use(`${env.API_PREFIX}/auth`, authRoutes);
-app.use(`${env.API_PREFIX}/apps`, authenticate, requirePasswordReady, appsRoutes);
+app.use(`${env.API_PREFIX}/apps`, appsRoutes);
 app.use(`${env.API_PREFIX}/devices`, authenticate, requirePasswordReady, devicesRoutes);
 app.use(`${env.API_PREFIX}/admin`, authenticate, requirePasswordReady, adminRoutes);
 
