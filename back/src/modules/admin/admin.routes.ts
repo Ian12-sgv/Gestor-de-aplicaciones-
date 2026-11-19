@@ -5,6 +5,10 @@ import { apkUpload, appIconUpload } from "../../middlewares/upload";
 import { validate } from "../../middlewares/validate";
 import {
   createAppController,
+  createAppFromApkController,
+  listAppAccessController,
+  listUsersController,
+  updateUserStatusController,
   createAppVersionController,
   createUserController,
   deleteAppFromStoreController,
@@ -24,6 +28,7 @@ import {
   appRoleParamsSchema,
   appUserParamsSchema,
   appParamsSchema,
+  createAppFromApkSchema,
   createUserSchema,
   createAppSchema,
   createAppVersionSchema,
@@ -31,6 +36,7 @@ import {
   revokeUserAccessSchema,
   updateAppSchema,
   updateAppStatusSchema,
+  updateUserStatusSchema,
   updateVersionMandatorySchema,
   upsertAppUserAccessSchema,
   userParamsSchema,
@@ -137,6 +143,36 @@ router.get(
   authorizePermissions([PERMISSIONS.AUDIT_LOG_READ]),
   validate(listInstallationLogsQuerySchema, "query"),
   listInstallationLogsController,
+);
+
+router.get(
+  "/users",
+  authorizePermissions([
+    PERMISSIONS.USER_CREATE,
+    PERMISSIONS.USER_REVOKE,
+    PERMISSIONS.APP_ACCESS_MANAGE,
+  ]),
+  listUsersController,
+);
+router.patch(
+  "/users/:id/status",
+  authorizePermissions([PERMISSIONS.USER_REVOKE]),
+  validate(userParamsSchema, "params"),
+  validate(updateUserStatusSchema),
+  updateUserStatusController,
+);
+router.get(
+  "/apps/:id/access",
+  authorizePermissions([PERMISSIONS.APP_ACCESS_MANAGE]),
+  validate(appParamsSchema, "params"),
+  listAppAccessController,
+);
+router.post(
+  "/apps/from-apk",
+  authorizePermissions([PERMISSIONS.APP_CREATE]),
+  apkUpload.single("apkFile"),
+  validate(createAppFromApkSchema),
+  createAppFromApkController,
 );
 
 export const adminRoutes = router;

@@ -13,6 +13,7 @@ export interface AuthenticatedUserProfile extends AuthenticatedRequestUser {
   status: string;
   lastLoginAt: Date | null;
   passwordChangedAt: Date | null;
+  permissions: string[];
 }
 
 export interface AuthSessionTokens {

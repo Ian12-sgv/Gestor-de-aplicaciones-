@@ -30,12 +30,16 @@ const roleDefinitions = [
 const seedAdmin = {
   email: process.env.SEED_ADMIN_EMAIL ?? "admin@empresa.local",
   username: process.env.SEED_ADMIN_USERNAME ?? "sistema",
-  password: process.env.SEED_ADMIN_PASSWORD ?? "j2094l,.",
+  password: process.env.SEED_ADMIN_PASSWORD ?? "",
   firstName: process.env.SEED_ADMIN_FIRST_NAME ?? "Admin",
   lastName: process.env.SEED_ADMIN_LAST_NAME ?? "Inicial",
 };
 
 function validateSeedAdmin() {
+  if (!seedAdmin.password || seedAdmin.password === "CHANGE_ME") {
+    throw new Error("SEED_ADMIN_PASSWORD is required: set it in back/.env before running the seed");
+  }
+
   if (seedAdmin.password.length < 8) {
     throw new Error("SEED_ADMIN_PASSWORD must contain at least 8 characters");
   }

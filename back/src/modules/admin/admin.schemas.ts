@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { APP_STATUSES, ROLE_CODES } from "../../config/domain";
+import { APP_STATUSES, ROLE_CODES, USER_STATUSES } from "../../config/domain";
 
 function parseBoolean(value: unknown): unknown {
   if (typeof value === "string") {
@@ -106,6 +106,21 @@ export const upsertAppUserAccessSchema = z.object({
   canInstall: z.preprocess(parseBoolean, z.boolean()).default(true),
 });
 
+export const updateUserStatusSchema = z.object({
+  status: z.enum(USER_STATUSES),
+});
+
+// Creates the catalog entry from the APK manifest (package, label, version) in a single upload.
+export const createAppFromApkSchema = z.object({
+  displayName: z.preprocess(emptyStringToUndefined, z.string().trim().min(2).max(150).optional()),
+  slug: z.preprocess(emptyStringToUndefined, z.string().trim().min(3).max(150).optional()),
+  shortDescription: z.preprocess(emptyStringToUndefined, z.string().trim().max(300).optional()),
+  category: z.preprocess(emptyStringToUndefined, z.string().trim().max(100).optional()),
+  requiresExplicitAccess: z.preprocess(parseBoolean, z.boolean()).optional(),
+  changelog: z.preprocess(emptyStringToUndefined, z.string().trim().max(4000).optional()),
+  isMandatory: z.preprocess(parseBoolean, z.boolean()).optional(),
+});
+
 export const listInstallationLogsQuerySchema = z.object({
   appId: z.string().uuid().optional(),
   userId: z.string().uuid().optional(),
@@ -122,4 +137,6 @@ export type UpdateVersionMandatoryInput = z.infer<typeof updateVersionMandatoryS
 export type RevokeUserAccessInput = z.infer<typeof revokeUserAccessSchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpsertAppUserAccessInput = z.infer<typeof upsertAppUserAccessSchema>;
+export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
+export type CreateAppFromApkInput = z.infer<typeof createAppFromApkSchema>;
 export type ListInstallationLogsQuery = z.infer<typeof listInstallationLogsQuerySchema>;

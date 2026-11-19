@@ -31,7 +31,11 @@ export const createAppVersionController = asyncHandler(async (req: Request, res:
 });
 
 export const listAdminAppsController = asyncHandler(async (_req: Request, res: Response) => {
-  const items = await adminService.listAdminApps();
+  const apps = await adminService.listAdminApps();
+  const items = apps.map((app) => ({
+    ...app,
+    versions: app.versions.map(serializeVersion),
+  }));
   res.status(200).json({ items });
 });
 
@@ -97,4 +101,24 @@ export const listInstallationLogsController = asyncHandler(async (req: Request, 
 export const revokeUserAccessController = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.revokeUserAccess(req.params.id, req.body, req.user!);
   res.status(200).json({ result });
+});
+
+export const createAppFromApkController = asyncHandler(async (req: Request, res: Response) => {
+  const result = await adminService.createAppFromApk(req.body, req.file, req.user!);
+  res.status(201).json({ app: result.app, version: serializeVersion(result.version) });
+});
+
+export const listUsersController = asyncHandler(async (_req: Request, res: Response) => {
+  const items = await adminService.listUsers();
+  res.status(200).json({ items });
+});
+
+export const updateUserStatusController = asyncHandler(async (req: Request, res: Response) => {
+  const user = await adminService.updateUserStatus(req.params.id, req.body, req.user!);
+  res.status(200).json({ user });
+});
+
+export const listAppAccessController = asyncHandler(async (req: Request, res: Response) => {
+  const access = await adminService.listAppAccess(req.params.id);
+  res.status(200).json(access);
 });

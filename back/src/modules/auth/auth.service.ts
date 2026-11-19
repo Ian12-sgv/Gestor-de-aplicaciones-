@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import { ROLE_PERMISSIONS, type RoleCode } from "../../config/domain";
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
 import { ApiError } from "../../utils/api-error";
@@ -55,7 +56,20 @@ function toAuthenticatedUserProfile(user: UserWithRoles): AuthenticatedUserProfi
     status: user.status,
     lastLoginAt: user.lastLoginAt ?? null,
     passwordChangedAt: user.passwordChangedAt ?? null,
+    permissions: resolvePermissions(user.roles.map((entry) => entry.role.code)),
   };
+}
+
+function resolvePermissions(roleCodes: readonly string[]): string[] {
+  const permissions = new Set<string>();
+
+  for (const roleCode of roleCodes) {
+    for (const permission of ROLE_PERMISSIONS[roleCode as RoleCode] ?? []) {
+      permissions.add(permission);
+    }
+  }
+
+  return [...permissions];
 }
 
 function generateRefreshToken(): string {

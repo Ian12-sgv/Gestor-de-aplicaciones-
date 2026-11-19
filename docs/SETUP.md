@@ -176,11 +176,9 @@ Notas:
 
 - El seed crea los roles `SUPER_ADMIN`, `ADMIN`, `APP_ADMIN` y `EMPLOYEE`.
 - Tambien crea o actualiza un usuario admin inicial y le asigna `SUPER_ADMIN`.
-- Por defecto usa:
-  - email: `admin@empresa.local`
-  - usuario: `sistema`
-  - password: `j2094l,.`
-- Puedes cambiar esos valores con las variables `SEED_ADMIN_*`.
+- Por defecto usa el email `admin@empresa.local` y el usuario `sistema`.
+- La contraseña es obligatoria: define `SEED_ADMIN_PASSWORD` en `back/.env` (el seed falla si falta o vale `CHANGE_ME`).
+- Puedes cambiar el resto de valores con las variables `SEED_ADMIN_*`.
 
 ## Roles y permisos administrativos
 

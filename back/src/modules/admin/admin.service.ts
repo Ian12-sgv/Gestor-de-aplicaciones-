@@ -28,6 +28,7 @@ import { slugify } from "../../utils/strings";
 import { revokeAllSessionsForUser } from "../auth/auth.service";
 import type { AuthenticatedRequestUser } from "../auth/auth.types";
 import type {
+  CreateAppFromApkInput,
   CreateAppInput,
   CreateAppVersionInput,
   CreateUserInput,
@@ -35,6 +36,7 @@ import type {
   RevokeUserAccessInput,
   UpdateAppInput,
   UpdateAppStatusInput,
+  UpdateUserStatusInput,
   UpdateVersionMandatoryInput,
   UpsertAppUserAccessInput,
 } from "./admin.schemas";
@@ -99,6 +101,14 @@ export async function listAdminApps() {
           versionCode: true,
           isMandatory: true,
           releasedAt: true,
+          changelog: true,
+          fileSizeBytes: true,
+          originalFileName: true,
+          createdBy: {
+            select: {
+              username: true,
+            },
+          },
         },
       },
     },
@@ -742,6 +752,10 @@ export async function revokeUserAccess(
   input: RevokeUserAccessInput,
   actor: AuthenticatedRequestUser,
 ) {
+  if (userId === actor.userId) {
+    throw new ApiError(400, "You cannot revoke your own access.");
+  }
+
   const targetUser = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -791,6 +805,183 @@ export async function revokeUserAccess(
     revokedByUserId: actor.userId,
     roles: revokedUser.roles.map((entry) => entry.role.code),
     revokedAt: new Date().toISOString(),
+  };
+}
+
+export async function createAppFromApk(
+  input: CreateAppFromApkInput,
+  uploadedFile: Express.Multer.File | undefined,
+  user: AuthenticatedRequestUser,
+) {
+  if (!uploadedFile) {
+    throw new ApiError(400, "An uploaded APK is required");
+  }
+
+  let manifest: ApkManifestMetadata;
+
+  try {
+    manifest = await readApkManifestMetadata(uploadedFile.path);
+  } catch (error) {
+    await removeFileIfExists(uploadedFile.path);
+    throw error;
+  }
+
+  const displayName = input.displayName ?? manifest.displayName ?? manifest.packageName;
+
+  let app: Awaited<ReturnType<typeof createApp>>;
+
+  try {
+    app = await createApp(
+      {
+        packageName: manifest.packageName,
+        displayName: displayName.slice(0, 150),
+        slug: input.slug,
+        shortDescription: input.shortDescription,
+        category: input.category,
+        requiresExplicitAccess: input.requiresExplicitAccess,
+        status: "DRAFT",
+      },
+      user,
+    );
+  } catch (error) {
+    await removeFileIfExists(uploadedFile.path);
+    throw error;
+  }
+
+  try {
+    const version = await createAppVersion(
+      app.id,
+      { changelog: input.changelog, isMandatory: input.isMandatory },
+      uploadedFile,
+      user,
+    );
+
+    return { app, version };
+  } catch (error) {
+    // The version is what makes the entry useful: roll back the empty app on failure.
+    await prisma.app.delete({ where: { id: app.id } }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function listUsers() {
+  const users = await prisma.user.findMany({
+    orderBy: [{ status: "asc" }, { username: "asc" }],
+    select: {
+      id: true,
+      email: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      status: true,
+      passwordMustChange: true,
+      lastLoginAt: true,
+      createdAt: true,
+      roles: {
+        select: {
+          role: {
+            select: {
+              code: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          devices: true,
+        },
+      },
+    },
+  });
+
+  return users.map(({ roles, _count, ...user }) => ({
+    ...user,
+    roles: roles.map((entry) => entry.role.code),
+    deviceCount: _count.devices,
+  }));
+}
+
+export async function updateUserStatus(
+  userId: string,
+  input: UpdateUserStatusInput,
+  actor: AuthenticatedRequestUser,
+) {
+  if (userId === actor.userId) {
+    throw new ApiError(400, "You cannot change your own status.");
+  }
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+
+  if (!targetUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { status: input.status },
+    select: { id: true, status: true },
+  });
+
+  if (input.status !== "ACTIVE") {
+    await revokeAllSessionsForUser(userId);
+  }
+
+  return user;
+}
+
+export async function listAppAccess(appId: string) {
+  const app = await prisma.app.findUnique({
+    where: { id: appId },
+    select: {
+      id: true,
+      requiresExplicitAccess: true,
+      userPermissions: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          canView: true,
+          canInstall: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              status: true,
+            },
+          },
+        },
+      },
+      rolePermissions: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          canView: true,
+          canInstall: true,
+          role: {
+            select: {
+              code: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!app) {
+    throw new ApiError(404, "Application not found");
+  }
+
+  return {
+    appId: app.id,
+    requiresExplicitAccess: app.requiresExplicitAccess,
+    users: app.userPermissions.map(({ user, ...permission }) => ({ ...permission, user })),
+    roles: app.rolePermissions.map(({ role, ...permission }) => ({
+      ...permission,
+      roleCode: role.code,
+      roleName: role.name,
+    })),
   };
 }
 
