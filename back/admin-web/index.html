@@ -7,62 +7,109 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>PDB Store · Administración</title>
     <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <!-- Iconos (trazos estilo Lucide) -->
+    <svg xmlns="http://www.w3.org/2000/svg" class="hidden" aria-hidden="true">
+      <defs>
+        <symbol id="i-apps" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+        <symbol id="i-activity" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.24"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+        <symbol id="i-archive" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+        <symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+        <symbol id="i-phone" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></symbol>
+        <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+        <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+      </defs>
+    </svg>
+
     <!-- Login -->
     <section id="login-view" class="auth-shell">
-      <div class="auth-card">
-        <img class="brand-logo" src="./logo.png" alt="PDB Store" width="56" height="56" />
-        <p class="eyebrow">PDB CORPORATIVO</p>
-        <h1>Administra tus aplicaciones</h1>
-        <p class="muted">Publica APKs, gestiona accesos y mantén el catálogo corporativo actualizado.</p>
+      <aside class="auth-brand" aria-hidden="true">
+        <div class="auth-brand-top"><img src="./logo.png" alt="" width="40" height="40" /><span>PDB Store</span></div>
+        <div class="auth-brand-copy">
+          <h2>La tienda privada de aplicaciones de la empresa.</h2>
+          <ul class="auth-points">
+            <li><svg class="i"><use href="#i-upload"/></svg>Publica APKs y actualizaciones en minutos</li>
+            <li><svg class="i"><use href="#i-shield"/></svg>Controla quién ve e instala cada app</li>
+            <li><svg class="i"><use href="#i-activity"/></svg>Revisa cada instalación en los dispositivos</li>
+          </ul>
+        </div>
+        <p class="auth-brand-foot">PDB Corporativo · Panel de administración</p>
+      </aside>
 
-        <form id="login-form" class="form-stack" novalidate>
-          <label>Usuario o correo
-            <input name="identifier" autocomplete="username" required autofocus />
-          </label>
-          <label>Contraseña
-            <span class="password-field">
-              <input name="password" type="password" autocomplete="current-password" required />
-              <button type="button" class="reveal-button" data-toggle-password aria-label="Mostrar contraseña">Mostrar</button>
-            </span>
-          </label>
-          <button class="button primary" type="submit">Iniciar sesión</button>
-        </form>
+      <div class="auth-main">
+        <div class="auth-card">
+          <img class="brand-logo" src="./logo.png" alt="PDB Store" width="52" height="52" />
+          <p class="eyebrow">PDB CORPORATIVO</p>
+          <h1>Bienvenido de nuevo</h1>
+          <p class="muted">Inicia sesión para administrar el catálogo corporativo.</p>
 
-        <form id="password-form" class="form-stack hidden" novalidate>
-          <p class="notice">Debes definir una nueva contraseña antes de administrar el catálogo.</p>
-          <label>Contraseña actual
-            <input name="currentPassword" type="password" autocomplete="current-password" required />
-          </label>
-          <label>Nueva contraseña
-            <span class="password-field">
-              <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-              <button type="button" class="reveal-button" data-toggle-password aria-label="Mostrar contraseña">Mostrar</button>
-            </span>
-            <small class="hint">Mínimo 8 caracteres.</small>
-          </label>
-          <button class="button primary" type="submit">Actualizar contraseña</button>
-        </form>
+          <form id="login-form" class="form-stack" novalidate>
+            <label>Usuario o correo
+              <input name="identifier" autocomplete="username" required autofocus placeholder="sistema" />
+            </label>
+            <label>Contraseña
+              <span class="password-field">
+                <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••" />
+                <button type="button" class="reveal-button" data-toggle-password aria-label="Mostrar contraseña">Mostrar</button>
+              </span>
+            </label>
+            <button class="button primary large" type="submit">Iniciar sesión</button>
+          </form>
 
-        <p id="auth-error" class="form-error with-icon" role="alert"></p>
+          <form id="password-form" class="form-stack hidden" novalidate>
+            <p class="notice">Debes definir una nueva contraseña antes de administrar el catálogo.</p>
+            <label>Contraseña actual
+              <input name="currentPassword" type="password" autocomplete="current-password" required />
+            </label>
+            <label>Nueva contraseña
+              <span class="password-field">
+                <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+                <button type="button" class="reveal-button" data-toggle-password aria-label="Mostrar contraseña">Mostrar</button>
+              </span>
+              <small class="hint">Mínimo 8 caracteres.</small>
+            </label>
+            <button class="button primary large" type="submit">Actualizar contraseña</button>
+          </form>
+
+          <p id="auth-error" class="form-error with-icon" role="alert"></p>
+        </div>
       </div>
     </section>
 
     <!-- Panel -->
     <main id="admin-view" class="admin-shell hidden">
       <aside class="sidebar">
-        <div class="sidebar-brand"><img src="./logo.png" alt="" width="32" height="32" /><span>PDB Store</span></div>
+        <div class="sidebar-brand"><img src="./logo.png" alt="" width="34" height="34" /><div><strong>PDB Store</strong><span>Administración</span></div></div>
         <nav class="sidebar-nav" aria-label="Secciones">
-          <a href="#aplicaciones" data-nav="apps">Aplicaciones</a>
-          <a href="#usuarios" data-nav="users" data-permission="user.create user.revoke">Usuarios</a>
-          <a href="#instalaciones" data-nav="logs" data-permission="audit.log.read">Instalaciones</a>
+          <a href="#aplicaciones" data-nav="apps"><svg class="i"><use href="#i-apps"/></svg>Aplicaciones</a>
+          <a href="#usuarios" data-nav="users" data-permission="user.create user.revoke"><svg class="i"><use href="#i-users"/></svg>Usuarios</a>
+          <a href="#instalaciones" data-nav="logs" data-permission="audit.log.read"><svg class="i"><use href="#i-activity"/></svg>Instalaciones</a>
         </nav>
         <div class="sidebar-user">
-          <strong id="user-name">-</strong>
-          <span id="user-roles"></span>
-          <button id="logout-button" class="text-button" type="button">Cerrar sesión</button>
+          <span class="avatar" id="user-avatar">A</span>
+          <div class="sidebar-user-text"><strong id="user-name">-</strong><span id="user-roles"></span></div>
+          <button id="logout-button" class="icon-button" type="button" title="Cerrar sesión" aria-label="Cerrar sesión"><svg class="i"><use href="#i-logout"/></svg></button>
         </div>
       </aside>
 
@@ -70,25 +117,25 @@
       <section class="workspace" data-view="apps">
         <header class="topbar">
           <div><p class="eyebrow">CATÁLOGO CORPORATIVO</p><h1>Aplicaciones</h1></div>
-          <button id="new-app-button" class="button primary" type="button" data-permission="app.create">+ Nueva aplicación</button>
+          <button id="new-app-button" class="button primary" type="button" data-permission="app.create"><svg class="i"><use href="#i-plus"/></svg>Nueva aplicación</button>
         </header>
 
         <div class="metrics" id="metrics">
-          <button type="button" class="metric" data-filter="ALL"><span>Total</span><strong data-metric="total">0</strong></button>
-          <button type="button" class="metric" data-filter="ACTIVE"><span>Activas</span><strong data-metric="active">0</strong></button>
-          <button type="button" class="metric" data-filter="DRAFT"><span>Borradores</span><strong data-metric="draft">0</strong></button>
-          <button type="button" class="metric" data-filter="INACTIVE"><span>Desactivadas / archivadas</span><strong data-metric="inactive">0</strong></button>
-          <button type="button" class="metric warn" data-filter="NO_APK"><span>Sin APK</span><strong data-metric="noApk">0</strong></button>
+          <button type="button" class="metric" data-filter="ALL"><span class="metric-icon tone-neutral"><svg class="i"><use href="#i-layers"/></svg></span><span class="metric-text"><span>Total</span><strong data-metric="total">0</strong></span></button>
+          <button type="button" class="metric" data-filter="ACTIVE"><span class="metric-icon tone-green"><svg class="i"><use href="#i-check"/></svg></span><span class="metric-text"><span>Activas</span><strong data-metric="active">0</strong></span></button>
+          <button type="button" class="metric" data-filter="DRAFT"><span class="metric-icon tone-amber"><svg class="i"><use href="#i-pencil"/></svg></span><span class="metric-text"><span>Borradores</span><strong data-metric="draft">0</strong></span></button>
+          <button type="button" class="metric" data-filter="INACTIVE"><span class="metric-icon tone-rose"><svg class="i"><use href="#i-archive"/></svg></span><span class="metric-text"><span>Inactivas</span><strong data-metric="inactive">0</strong></span></button>
+          <button type="button" class="metric warn" data-filter="NO_APK"><span class="metric-icon tone-amber"><svg class="i"><use href="#i-alert"/></svg></span><span class="metric-text"><span>Sin APK</span><strong data-metric="noApk">0</strong></span></button>
         </div>
 
         <div class="content-grid">
-          <section class="catalog-panel">
+          <section class="card catalog-panel">
             <div class="panel-heading">
               <div><h2>Catálogo</h2><p id="catalog-summary" class="muted">Cargando aplicaciones…</p></div>
-              <button id="refresh-button" class="button ghost small" type="button">Actualizar</button>
+              <button id="refresh-button" class="icon-button bordered" type="button" title="Actualizar" aria-label="Actualizar"><svg class="i"><use href="#i-refresh"/></svg></button>
             </div>
             <div class="toolbar">
-              <input id="app-search" type="search" placeholder="Buscar por nombre, paquete o categoría" aria-label="Buscar aplicaciones" />
+              <span class="search-field"><svg class="i"><use href="#i-search"/></svg><input id="app-search" type="search" placeholder="Buscar por nombre, paquete o categoría" aria-label="Buscar aplicaciones" /></span>
               <select id="app-filter" aria-label="Filtrar por estado">
                 <option value="ALL">Todas</option>
                 <option value="ACTIVE">Activas</option>
@@ -100,7 +147,7 @@
             <div id="app-list" class="app-list"></div>
           </section>
 
-          <aside id="editor" class="editor-panel empty"></aside>
+          <aside id="editor" class="card editor-panel empty"></aside>
         </div>
       </section>
 
@@ -108,11 +155,11 @@
       <section class="workspace hidden" data-view="users">
         <header class="topbar">
           <div><p class="eyebrow">CUENTAS CORPORATIVAS</p><h1>Usuarios</h1></div>
-          <button id="new-user-button" class="button primary" type="button" data-permission="user.create">+ Nuevo usuario</button>
+          <button id="new-user-button" class="button primary" type="button" data-permission="user.create"><svg class="i"><use href="#i-plus"/></svg>Nuevo usuario</button>
         </header>
-        <section class="table-panel">
+        <section class="card table-panel">
           <div class="toolbar">
-            <input id="user-search" type="search" placeholder="Buscar por usuario, correo o nombre" aria-label="Buscar usuarios" />
+            <span class="search-field"><svg class="i"><use href="#i-search"/></svg><input id="user-search" type="search" placeholder="Buscar por usuario, correo o nombre" aria-label="Buscar usuarios" /></span>
             <select id="user-filter" aria-label="Filtrar por estado">
               <option value="ALL">Todos</option>
               <option value="ACTIVE">Activos</option>
@@ -132,9 +179,9 @@
       <section class="workspace hidden" data-view="logs">
         <header class="topbar">
           <div><p class="eyebrow">AUDITORÍA</p><h1>Instalaciones</h1></div>
-          <button id="refresh-logs-button" class="button ghost" type="button">Actualizar</button>
+          <button id="refresh-logs-button" class="button ghost" type="button"><svg class="i"><use href="#i-refresh"/></svg>Actualizar</button>
         </header>
-        <section class="table-panel">
+        <section class="card table-panel">
           <form id="log-filters" class="toolbar">
             <select name="appId" aria-label="Aplicación"><option value="">Todas las aplicaciones</option></select>
             <select name="userId" aria-label="Usuario"><option value="">Todos los usuarios</option></select>
@@ -167,7 +214,7 @@
       <div class="dialog-card">
         <div class="dialog-heading">
           <div><p class="eyebrow">NUEVA APLICACIÓN</p><h2>Crear borrador</h2></div>
-          <button class="button ghost small" type="button" data-close-dialog>Cerrar</button>
+          <button class="icon-button" type="button" data-close-dialog aria-label="Cerrar"><svg class="i"><use href="#i-plus" transform="rotate(45 12 12)"/></svg></button>
         </div>
         <div class="segmented" role="tablist">
           <button type="button" role="tab" class="active" data-create-mode="apk">Desde un APK</button>
@@ -178,12 +225,15 @@
           <p class="muted">El paquete, el nombre y la versión se leen del APK. Se crea como borrador con su primera versión.</p>
           <label class="dropzone" data-dropzone>
             <input name="apkFile" type="file" accept=".apk,application/vnd.android.package-archive" required />
+            <span class="dropzone-icon"><svg class="i"><use href="#i-upload"/></svg></span>
             <span class="dropzone-title">Arrastra el APK aquí</span>
             <span class="dropzone-hint" data-dropzone-hint>o haz clic para elegirlo</span>
           </label>
           <label>Nombre visible <small class="hint">opcional, se toma del APK</small><input name="displayName" maxlength="150" placeholder="Inventario" /></label>
-          <label>Categoría<input name="category" maxlength="100" placeholder="Operaciones" /></label>
-          <label>Descripción corta<textarea name="shortDescription" maxlength="300" placeholder="Resumen para el catálogo"></textarea></label>
+          <div class="two-columns">
+            <label>Categoría<input name="category" maxlength="100" placeholder="Operaciones" /></label>
+            <label>Descripción corta<input name="shortDescription" maxlength="300" placeholder="Resumen para el catálogo" /></label>
+          </div>
           <label>Novedades de esta versión<textarea name="changelog" maxlength="4000"></textarea></label>
           <label class="checkbox"><input name="requiresExplicitAccess" type="checkbox" /> Requiere autorización explícita</label>
           <progress class="hidden" max="100" value="0" data-upload-progress></progress>
@@ -197,9 +247,11 @@
         <form id="new-app-form" class="form-stack hidden" novalidate>
           <label>Nombre visible<input name="displayName" maxlength="150" required placeholder="Inventario" /></label>
           <label>Paquete Android<input name="packageName" maxlength="255" required placeholder="com.empresa.inventario" /></label>
-          <label>Slug <small class="hint">opcional</small><input name="slug" maxlength="150" placeholder="inventario" /></label>
+          <div class="two-columns">
+            <label>Slug <small class="hint">opcional</small><input name="slug" maxlength="150" placeholder="inventario" /></label>
+            <label>Categoría<input name="category" maxlength="100" placeholder="Operaciones" /></label>
+          </div>
           <label>Descripción corta<textarea name="shortDescription" maxlength="300" placeholder="Resumen para el catálogo"></textarea></label>
-          <label>Categoría<input name="category" maxlength="100" placeholder="Operaciones" /></label>
           <label class="checkbox"><input name="requiresExplicitAccess" type="checkbox" /> Requiere autorización explícita</label>
           <div class="dialog-actions">
             <button class="button secondary" type="button" data-close-dialog>Cancelar</button>
@@ -215,14 +267,16 @@
       <form id="new-user-form" class="dialog-card form-stack" novalidate>
         <div class="dialog-heading">
           <div><p class="eyebrow">NUEVO USUARIO</p><h2>Crear cuenta</h2></div>
-          <button class="button ghost small" type="button" data-close-dialog>Cerrar</button>
+          <button class="icon-button" type="button" data-close-dialog aria-label="Cerrar"><svg class="i"><use href="#i-plus" transform="rotate(45 12 12)"/></svg></button>
         </div>
         <div class="two-columns">
           <label>Nombre<input name="firstName" maxlength="100" /></label>
           <label>Apellido<input name="lastName" maxlength="100" /></label>
         </div>
-        <label>Usuario<input name="username" maxlength="100" minlength="3" required autocomplete="off" placeholder="tienda01" /></label>
-        <label>Correo<input name="email" type="email" maxlength="320" required autocomplete="off" placeholder="tienda01@empresa.local" /></label>
+        <div class="two-columns">
+          <label>Usuario<input name="username" maxlength="100" minlength="3" required autocomplete="off" placeholder="tienda01" /></label>
+          <label>Correo<input name="email" type="email" maxlength="320" required autocomplete="off" placeholder="tienda01@empresa.local" /></label>
+        </div>
         <label>Contraseña temporal
           <span class="password-field">
             <input name="password" type="text" minlength="8" maxlength="128" required autocomplete="off" />
@@ -232,10 +286,10 @@
         </label>
         <fieldset class="role-picker">
           <legend>Roles</legend>
-          <label class="checkbox"><input type="checkbox" name="roleCodes" value="EMPLOYEE" checked /> Empleado <small class="hint">usa la tienda</small></label>
-          <label class="checkbox"><input type="checkbox" name="roleCodes" value="APP_ADMIN" /> Administrador de apps</label>
-          <label class="checkbox"><input type="checkbox" name="roleCodes" value="ADMIN" /> Administrador</label>
-          <label class="checkbox"><input type="checkbox" name="roleCodes" value="SUPER_ADMIN" /> Super administrador</label>
+          <label class="role-option"><input type="checkbox" name="roleCodes" value="EMPLOYEE" checked /><span><strong>Empleado</strong><small>Usa la tienda en su celular</small></span></label>
+          <label class="role-option"><input type="checkbox" name="roleCodes" value="APP_ADMIN" /><span><strong>Administrador de apps</strong><small>Publica apps y gestiona accesos</small></span></label>
+          <label class="role-option"><input type="checkbox" name="roleCodes" value="ADMIN" /><span><strong>Administrador</strong><small>Además crea y desactiva usuarios</small></span></label>
+          <label class="role-option"><input type="checkbox" name="roleCodes" value="SUPER_ADMIN" /><span><strong>Super administrador</strong><small>Todo, incluido eliminar apps</small></span></label>
         </fieldset>
         <div class="dialog-actions">
           <button class="button secondary" type="button" data-close-dialog>Cancelar</button>
@@ -246,10 +300,10 @@
     </dialog>
 
     <!-- Confirmación con texto -->
-    <dialog id="confirm-dialog" class="dialog">
+    <dialog id="confirm-dialog" class="dialog narrow">
       <form id="confirm-form" class="dialog-card form-stack" novalidate>
-        <div class="dialog-heading"><div><p class="eyebrow danger">ACCIÓN IRREVERSIBLE</p><h2 data-confirm-title></h2></div></div>
-        <p class="muted" data-confirm-message></p>
+        <span class="danger-icon"><svg class="i"><use href="#i-trash"/></svg></span>
+        <div><h2 data-confirm-title></h2><p class="muted" data-confirm-message></p></div>
         <label>Escribe <code data-confirm-expected></code> para confirmar<input name="confirmation" autocomplete="off" required /></label>
         <div class="dialog-actions">
           <button class="button secondary" type="button" data-close-dialog>Cancelar</button>
@@ -259,9 +313,12 @@
     </dialog>
 
     <template id="editor-template">
-      <div class="editor-header">
+      <div class="editor-hero">
         <div class="app-icon preview" data-icon-preview>+</div>
-        <div class="grow"><p class="eyebrow" data-package></p><h2 data-name></h2></div>
+        <div class="grow">
+          <h2 data-name></h2>
+          <p class="mono" data-package></p>
+        </div>
       </div>
       <div class="status-row">
         <label>Estado
@@ -277,11 +334,12 @@
       <p class="notice hidden" data-visibility-notice></p>
 
       <details class="section" open>
-        <summary><h3>Instalar / actualizar APK</h3></summary>
+        <summary><span class="section-icon"><svg class="i"><use href="#i-upload"/></svg></span><h3>Instalar / actualizar APK</h3></summary>
         <form data-version-form class="form-stack compact" novalidate>
           <p class="muted">La versión y el código se leen del APK. Sube un APK con un código mayor para que los celulares vean «Actualizar».</p>
           <label class="dropzone" data-dropzone>
             <input name="apkFile" type="file" accept=".apk,application/vnd.android.package-archive" required />
+            <span class="dropzone-icon"><svg class="i"><use href="#i-upload"/></svg></span>
             <span class="dropzone-title">Arrastra el APK aquí</span>
             <span class="dropzone-hint" data-dropzone-hint>o haz clic para elegirlo</span>
           </label>
@@ -293,30 +351,32 @@
       </details>
 
       <details class="section" open>
-        <summary><h3>Versiones publicadas</h3></summary>
+        <summary><span class="section-icon"><svg class="i"><use href="#i-history"/></svg></span><h3>Versiones publicadas</h3></summary>
         <div data-versions class="versions"></div>
       </details>
 
       <details class="section" data-access-section data-permission="app.access.manage">
-        <summary><h3>Accesos</h3></summary>
+        <summary><span class="section-icon"><svg class="i"><use href="#i-lock"/></svg></span><h3>Accesos</h3></summary>
         <div data-access class="access"></div>
       </details>
 
       <details class="section">
-        <summary><h3>Información</h3></summary>
+        <summary><span class="section-icon"><svg class="i"><use href="#i-info"/></svg></span><h3>Información</h3></summary>
         <form data-edit-form class="form-stack compact" novalidate>
-          <label>Nombre<input name="displayName" maxlength="150" required /></label>
-          <label>Slug<input name="slug" maxlength="150" required /></label>
+          <div class="two-columns">
+            <label>Nombre<input name="displayName" maxlength="150" required /></label>
+            <label>Slug<input name="slug" maxlength="150" required /></label>
+          </div>
+          <label>Categoría<input name="category" maxlength="100" /></label>
           <label>Descripción corta<textarea name="shortDescription" maxlength="300"></textarea></label>
           <label>Descripción<textarea name="description" maxlength="4000"></textarea></label>
-          <label>Categoría<input name="category" maxlength="100" /></label>
           <label class="checkbox"><input name="requiresExplicitAccess" type="checkbox" /> Requiere autorización explícita</label>
           <button class="button secondary" type="submit">Guardar cambios</button>
         </form>
       </details>
 
       <details class="section">
-        <summary><h3>Icono</h3></summary>
+        <summary><span class="section-icon"><svg class="i"><use href="#i-image"/></svg></span><h3>Icono</h3></summary>
         <form data-icon-form class="form-stack compact" novalidate>
           <p class="muted">PNG, JPEG o WebP · máximo 5 MB.</p>
           <input name="icon" type="file" accept="image/png,image/jpeg,image/webp" required />
@@ -327,7 +387,10 @@
         </form>
       </details>
 
-      <button class="text-button danger delete-app" type="button" data-delete-app data-permission="app.delete">Eliminar aplicación</button>
+      <div class="danger-zone" data-permission="app.delete">
+        <div><strong>Eliminar aplicación</strong><span>Borra la app, sus APKs y su historial.</span></div>
+        <button class="button danger-outline small" type="button" data-delete-app><svg class="i"><use href="#i-trash"/></svg>Eliminar</button>
+      </div>
       <p class="form-error with-icon" data-editor-error role="alert"></p>
     </template>
 

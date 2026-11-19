@@ -91,6 +91,19 @@ function formatBytes(value) {
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+function icon(name) {
+  return `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+}
+
+function emptyState(iconName, title, text) {
+  return `<div class="empty-state"><span>${icon(iconName)}</span><h2>${title}</h2><p>${text}</p></div>`;
+}
+
+function initials(...parts) {
+  const words = parts.filter(Boolean).join(" ").trim().split(/[\s._@-]+/).filter(Boolean);
+  return ((words[0]?.[0] || "?") + (words[1]?.[0] || "")).toUpperCase();
+}
+
 function labelForStatus(status) {
   return STATUS_LABELS[status] || status;
 }
@@ -344,6 +357,7 @@ async function setUser() {
   const { user } = payload;
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
   $("#user-name").textContent = fullName || user.username || user.email;
+  $("#user-avatar").textContent = initials(fullName || user.username);
   $("#user-roles").textContent = (user.roles || []).map((role) => ROLE_LABELS[role] || role).join(" · ");
   applyPermissions();
 }
@@ -440,11 +454,11 @@ function renderApps() {
     : `${apps.length} de ${total} aplicaciones`;
   appList.replaceChildren();
   if (total === 0) {
-    appList.innerHTML = '<div class="empty-state"><span>+</span><h2>Sin aplicaciones</h2><p>Crea la primera aplicación a partir de su APK.</p></div>';
+    appList.innerHTML = emptyState("package", "Sin aplicaciones", "Crea la primera aplicación a partir de su APK.");
     return;
   }
   if (apps.length === 0) {
-    appList.innerHTML = '<div class="empty-state"><span>?</span><h2>Sin resultados</h2><p>Ninguna aplicación coincide con la búsqueda o el filtro.</p></div>';
+    appList.innerHTML = emptyState("search", "Sin resultados", "Ninguna aplicación coincide con la búsqueda o el filtro.");
     return;
   }
   apps.forEach((app) => {
@@ -453,9 +467,9 @@ function renderApps() {
     card.type = "button";
     card.className = `app-card ${state.selectedId === app.id ? "selected" : ""}`;
     const meta = [
-      latest ? `v${escapeHtml(latest.versionName)}` : '<span class="warn-text">Sin APK</span>',
+      latest ? `v${escapeHtml(latest.versionName)}` : `<span class="warn-text">${icon("alert")}Sin APK</span>`,
       app.category ? escapeHtml(app.category) : "",
-      app.requiresExplicitAccess ? "Acceso restringido" : "",
+      app.requiresExplicitAccess ? `<span class="lock-text">${icon("lock")}Restringida</span>` : "",
     ].filter(Boolean).join(" · ");
     card.innerHTML = `
       <span class="app-icon">${escapeHtml(app.displayName.slice(0, 1).toUpperCase())}</span>
@@ -464,7 +478,8 @@ function renderApps() {
         <span class="app-card-package">${escapeHtml(app.packageName)}</span>
         <span class="app-card-meta">${meta}</span>
       </span>
-      <span class="status-badge ${app.status.toLowerCase()}">${labelForStatus(app.status)}</span>`;
+      <span class="status-badge ${app.status.toLowerCase()}">${labelForStatus(app.status)}</span>
+      <span class="chevron">${icon("chevron")}</span>`;
     card.addEventListener("click", () => {
       state.selectedId = app.id;
       renderApps();
@@ -489,7 +504,7 @@ function renderEditor() {
   const app = currentApp();
   if (!app) {
     editor.className = "editor-panel empty";
-    editor.innerHTML = '<div class="empty-state"><span>+</span><h2>Selecciona una aplicación</h2><p>Desde aquí podrás cambiar sus datos, icono, APK, accesos y estado.</p></div>';
+    editor.innerHTML = emptyState("apps", "Selecciona una aplicación", "Desde aquí podrás cambiar sus datos, icono, APK, accesos y estado.");
     return;
   }
 
@@ -836,7 +851,13 @@ $$("#metrics .metric").forEach((metric) => metric.addEventListener("click", () =
   filter.value = filter.value === metric.dataset.filter ? "ALL" : metric.dataset.filter;
   renderApps();
 }));
-$("#refresh-button").addEventListener("click", () => loadApps().then(() => showToast("Catálogo actualizado.")).catch((error) => showToast(error.message, true)));
+$("#refresh-button").addEventListener("click", (event) => {
+  const button = event.currentTarget;
+  button.classList.remove("spinning");
+  void button.offsetWidth;
+  button.classList.add("spinning");
+  loadApps().then(() => showToast("Catálogo actualizado.")).catch((error) => showToast(error.message, true));
+});
 
 // ---------------------------------------------------------------- nueva aplicación
 
@@ -944,7 +965,7 @@ function renderUsers() {
   const users = (state.users || []).filter((user) => (filter === "ALL" || user.status === filter)
     && (!query || normalize(`${user.username} ${user.email} ${user.firstName || ""} ${user.lastName || ""}`).includes(query)));
   if (!users.length) {
-    rows.innerHTML = '<tr><td colspan="6" class="empty-cell">No hay usuarios que coincidan.</td></tr>';
+    rows.innerHTML = `<tr><td colspan="6" class="empty-cell">${emptyState("users", "Sin usuarios", "No hay usuarios que coincidan con la búsqueda.")}</td></tr>`;
     return;
   }
   const selfId = state.session?.user?.userId;
@@ -957,7 +978,7 @@ function renderUsers() {
       : `<button type="button" class="text-button ${active ? "danger" : ""}" data-user-status="${escapeHtml(user.id)}" data-next="${active ? "DISABLED" : "ACTIVE"}">${active ? "Desactivar" : "Reactivar"}</button>`;
     return `
       <tr>
-        <td><strong>${escapeHtml(user.username)}</strong><span class="cell-sub">${escapeHtml(fullName ? `${fullName} · ${user.email}` : user.email)}</span></td>
+        <td><div class="user-cell"><span class="avatar ${active ? "" : "muted-avatar"}">${escapeHtml(initials(fullName || user.username))}</span><div><strong>${escapeHtml(user.username)}</strong><span class="cell-sub">${escapeHtml(fullName ? `${fullName} · ${user.email}` : user.email)}</span></div></div></td>
         <td>${user.roles.map((role) => `<span class="pill">${escapeHtml(ROLE_LABELS[role] || role)}</span>`).join(" ")}</td>
         <td><span class="status-badge ${active ? "active" : "disabled"}">${active ? "Activo" : "Desactivado"}</span>${user.passwordMustChange ? '<span class="cell-sub">Debe cambiar contraseña</span>' : ""}</td>
         <td>${formatDate(user.lastLoginAt)}</td>
@@ -1069,7 +1090,7 @@ async function loadLogs() {
   const payload = await api(`/api/admin/installation-logs?${params}`);
   const logs = payload.items || [];
   if (!logs.length) {
-    rows.innerHTML = '<tr><td colspan="7" class="empty-cell">No hay registros con estos filtros.</td></tr>';
+    rows.innerHTML = `<tr><td colspan="7" class="empty-cell">${emptyState("inbox", "Sin registros", "No hay instalaciones con estos filtros.")}</td></tr>`;
     return;
   }
   rows.innerHTML = logs.map((log) => {
